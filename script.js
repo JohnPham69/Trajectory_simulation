@@ -3,6 +3,21 @@
    Application and Simulation Logic
    ========================================================= */
 
+const PROJECTILE_PRESETS = {
+    'm982': {
+        name: 'M982 Excalibur Shell',
+        mass: 48,
+        dragCoefficient: 0.3,
+        referenceArea: 0.018,
+    },
+    'cannonball': {
+        name: '18th Century Cannonball',
+        mass: 5.4, // 12-pounder
+        dragCoefficient: 0.47, // Sphere
+        referenceArea: 0.0095, // 11cm diameter
+    }
+};
+
 /**
  * Simulates the trajectory of a simple shell with constant mass.
  * @param {object} params - The parameters for the simulation.
@@ -325,6 +340,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let state = {
         simulationType: 'projectile', // 'projectile' or 'rocket'
         simulationData: null,
+        target: null, // {x, y} for the game target
+        animationFrameId: null,
         charts: {},
         isDarkMode: window.matchMedia('(prefers-color-scheme: dark)').matches
     };
@@ -336,6 +353,7 @@ document.addEventListener('DOMContentLoaded', () => {
         rocketTab: document.getElementById('rocket-tab'),
         projectilePanel: document.getElementById('projectile-panel'),
         rocketPanel: document.getElementById('rocket-panel'),
+        projectileType: document.getElementById('projectile-type'),
         projectileForm: document.getElementById('projectile-form'),
         rocketForm: document.getElementById('rocket-form'),
         runButton: document.getElementById('run-simulation'),
@@ -357,7 +375,12 @@ document.addEventListener('DOMContentLoaded', () => {
             body: document.getElementById('simulation-table-body'),
             limit: document.getElementById('table-row-limit'),
         },
+        resetGraphButton: document.getElementById('reset-graph-button'),
         chartResetButtons: document.querySelectorAll('.chart-reset-button'),
+        animationCanvas: document.getElementById('animation-canvas'),
+        get animationCtx() {
+            return this.animationCanvas.getContext('2d');
+        }
     };
 
     // --- CHART CONFIGURATION ---
@@ -396,11 +419,15 @@ document.addEventListener('DOMContentLoaded', () => {
     function init() {
         setupEventListeners();
         applyTheme(state.isDarkMode);
+        populateProjectilePresets();
         resetUI();
+        updateCharts([]); // Create empty charts on load so target can be set
     }
 
     // --- EVENT LISTENERS ---
     function setupEventListeners() {
+        const trajectoryChartCanvas = document.getElementById('trajectory-chart');
+        trajectoryChartCanvas.addEventListener('click', onChartClick);
         DOMElements.themeToggle.addEventListener('click', toggleTheme);
         DOMElements.projectileTab.addEventListener('click', () => switchSimulationType('projectile'));
         DOMElements.rocketTab.addEventListener('click', () => switchSimulationType('rocket'));
@@ -408,6 +435,8 @@ document.addEventListener('DOMContentLoaded', () => {
         DOMElements.resetButton.addEventListener('click', resetUI);
         DOMElements.exportButton.addEventListener('click', exportToCSV);
         DOMElements.table.limit.addEventListener('change', () => updateTable(state.simulationData));
+        DOMElements.resetGraphButton.addEventListener('click', resetGraph);
+        DOMElements.projectileType.addEventListener('change', onProjectileTypeChange);
         DOMElements.chartResetButtons.forEach(button => {
             button.addEventListener('click', () => {
                 const chartId = button.dataset.chart;
@@ -418,6 +447,47 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function onChartClick(event) {
+        const chart = state.charts.trajectory;
+        if (!chart || state.animationFrameId) return; // Don't set target while running
+    
+        const rect = chart.canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+    
+        // Convert pixel coordinates to data coordinates
+        const dataX = chart.scales.x.getValueForPixel(x);
+        const dataY = chart.scales.y.getValueForPixel(y);
+    
+        // Ensure target is within the valid gameplay area
+        if (dataX < 0 || dataY < 0) return;
+    
+        state.target = { x: dataX, y: dataY };
+        drawTarget(); // Draw the new target immediately
+    }
+
+    function resetGraph() {
+        state.target = null;
+        state.simulationData = null;
+        resetUI(false); // Soft reset
+        updateCharts([]); // Redraw empty charts
+    }
+
+    function populateProjectilePresets() {
+        const select = DOMElements.projectileType;
+        select.innerHTML = '';
+        for (const key in PROJECTILE_PRESETS) {
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = PROJECTILE_PRESETS[key].name;
+            select.appendChild(option);
+        }
+        onProjectileTypeChange(); // Set initial values
+    }
+
+    function onProjectileTypeChange() {
+        updateProjectileInputs();
+    }
     // --- THEME ---
     function toggleTheme() {
         state.isDarkMode = !state.isDarkMode;
@@ -432,7 +502,7 @@ document.addEventListener('DOMContentLoaded', () => {
         Object.values(state.charts).forEach(chart => chart.destroy());
         state.charts = {};
         if (state.simulationData) {
-            updateCharts(state.simulationData);
+            updateCharts(state.simulationData, true);
         }
     }
 
@@ -456,34 +526,125 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- SIMULATION EXECUTION ---
     function runSimulation() {
+        if (state.animationFrameId) { // If animation is running, stop it
+            cancelAnimationFrame(state.animationFrameId);
+            state.animationFrameId = null;
+            setUIState('ready');
+            return;
+        }
+
         const form = state.simulationType === 'projectile' ? DOMElements.projectileForm : DOMElements.rocketForm;
         const params = getAndValidateFormParams(form);
 
         if (!params) return;
 
         setUIState('running');
+        resetUI(false); // Soft reset to clear previous run visuals
+
+        // Initialize charts before starting the animation
+        updateCharts([]);
 
         // Use setTimeout to allow the UI to update before the heavy computation
         setTimeout(() => {
             try {
-                let result;
                 if (state.simulationType === 'projectile') {
-                    result = simulateProjectileTrajectory(params);
+                    animateProjectile(params);
                 } else {
-                    result = simulateV2Trajectory(params);
+                    // V2 animation is not implemented, run as before
+                    const result = simulateV2Trajectory(params);
+                    state.simulationData = result.data;
+                    updateSummary(result);
+                    updateCharts(result.data);
+                    updateTable(result.data);
+                    setUIState('complete');
                 }
-                state.simulationData = result.data;
-                
-                updateSummary(result);
-                updateCharts(result.data);
-                updateTable(result.data);
-
-                setUIState('complete');
             } catch (error) {
                 console.error("Simulation failed:", error);
                 setUIState('error', 'Simulation failed. Check console for details.');
             }
         }, 50);
+    }
+    
+    function animateProjectile(params) {
+        const { timeStep } = params;
+        const g = params.gravity;
+
+        // Initial conditions
+        const launchAngleRad = (params.launchAngle * Math.PI) / 180;
+        let pos = { x: 0.0, y: 0.0 };
+        let vel = {
+            vx: params.initialVelocity * Math.cos(launchAngleRad),
+            vy: params.initialVelocity * Math.sin(launchAngleRad)
+        };
+        let time = 0;
+
+        state.simulationData = [];
+        const trajectoryChart = state.charts.trajectory;
+        const velocityChart = state.charts.velocity;
+        const altitudeChart = state.charts.altitude;
+
+        function animationLoop() {
+            // --- Game Logic: Hit Detection ---
+            if (state.target) {
+                const distance = Math.sqrt((pos.x - state.target.x) ** 2 + (pos.y - state.target.y) ** 2);
+                if (distance <= 100) { // 100-unit hitbox radius
+                    setUIState('hit');
+                    cancelAnimationFrame(state.animationFrameId);
+                    state.animationFrameId = null;
+                    return; // Stop the simulation
+                }
+            }
+
+            if (pos.y < 0 && time > 0) {
+                setUIState('complete');
+                state.animationFrameId = null;
+                // Final updates
+                updateSummary({ data: state.simulationData });
+                updateCharts(state.simulationData, true); // Update all charts with final data
+                updateTable(state.simulationData);
+                return; // End animation
+            }
+
+            const speed = Math.sqrt(vel.vx ** 2 + vel.vy ** 2);
+            const dragForce = 0.5 * params.dragCoefficient * params.airDensity * params.referenceArea * speed ** 2;
+            const dragAccel = dragForce / params.mass;
+            const ax = speed > 1e-6 ? -dragAccel * (vel.vx / speed) : 0;
+            const ay = speed > 1e-6 ? -g - (dragAccel * (vel.vy / speed)) : -g;
+
+            vel.vx += ax * timeStep;
+            vel.vy += ay * timeStep;
+            pos.x += vel.vx * timeStep;
+            pos.y += vel.vy * timeStep;
+            time += timeStep;
+
+            const dataPoint = { time, ...pos, ...vel, speed: Math.sqrt(vel.vx**2 + vel.vy**2) };
+            state.simulationData.push(dataPoint);
+
+            // Update charts incrementally
+            if (trajectoryChart) {
+                trajectoryChart.data.datasets[0].data.push({ x: pos.x, y: pos.y });
+                trajectoryChart.update('none'); // 'none' for no animation
+            }
+            if (velocityChart) {
+                const timeLabel = dataPoint.time.toFixed(1);
+                velocityChart.data.labels.push(timeLabel);
+                velocityChart.data.datasets[0].data.push(dataPoint.speed); // Total Speed
+                velocityChart.data.datasets[1].data.push(dataPoint.vx);    // Vx
+                velocityChart.data.datasets[2].data.push(dataPoint.vy);    // Vy
+                velocityChart.update('none');
+            }
+            if (altitudeChart) {
+                const timeLabel = dataPoint.time.toFixed(1);
+                altitudeChart.data.labels.push(timeLabel);
+                altitudeChart.data.datasets[0].data.push(dataPoint.y);
+                altitudeChart.update('none');
+            }
+            drawAnimatedProjectile(pos, trajectoryChart);
+
+            state.animationFrameId = requestAnimationFrame(animationLoop);
+        }
+
+        animationLoop();
     }
 
     function getAndValidateFormParams(form) {
@@ -492,8 +653,23 @@ document.addEventListener('DOMContentLoaded', () => {
         let isValid = true;
         let errorMessage = '';
 
+        // For projectile, add preset values to params
+        if (state.simulationType === 'projectile') {
+            const presetKey = DOMElements.projectileType.value;
+            if (PROJECTILE_PRESETS[presetKey]) {
+                const preset = PROJECTILE_PRESETS[presetKey];
+                // These are now read from the advanced inputs
+            }
+        }
+
         for (const [name, value] of formData.entries()) {
             const input = form.elements[name];
+
+            // Skip numeric validation for the projectile type selector
+            if (name === 'projectileType') {
+                continue;
+            }
+
             const numValue = parseFloat(value);
 
             if (isNaN(numValue) || value.trim() === '') {
@@ -537,22 +713,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- UI STATE & RESET ---
     function setUIState(status, message = '') {
-        const isRunning = status === 'running';
-        DOMElements.runButton.disabled = isRunning;
-        DOMElements.resetButton.disabled = isRunning;
-        DOMElements.exportButton.disabled = isRunning || !state.simulationData;
+        const isSimulating = status === 'running';
+        DOMElements.runButton.disabled = false; // Always enable run/stop
+        DOMElements.resetButton.disabled = isSimulating;
+        DOMElements.exportButton.disabled = isSimulating || !state.simulationData;
+
+        // Disable forms during simulation
+        DOMElements.projectileForm.disabled = isSimulating;
+        DOMElements.rocketForm.disabled = isSimulating;
 
         DOMElements.statusBadge.classList.remove('success', 'error', 'running');
         switch (status) {
             case 'running':
                 DOMElements.statusBadge.textContent = 'Running...';
                 DOMElements.statusBadge.classList.add('running');
+                DOMElements.runButton.textContent = 'Stop Simulation';
+                DOMElements.runButton.classList.add('stop-button');
                 break;
             case 'complete':
                 DOMElements.statusBadge.textContent = 'Complete';
                 DOMElements.statusBadge.classList.add('success');
+                DOMElements.runButton.textContent = 'Run Simulation';
+                DOMElements.runButton.classList.remove('stop-button');
+                break;
+            case 'hit':
+                DOMElements.statusBadge.textContent = 'Target Hit!';
+                DOMElements.statusBadge.classList.add('success');
+                DOMElements.runButton.textContent = 'Run Simulation';
+                DOMElements.runButton.classList.remove('stop-button');
                 break;
             case 'error':
+                if (state.animationFrameId) {
+                    cancelAnimationFrame(state.animationFrameId);
+                    state.animationFrameId = null;
+                }
+                DOMElements.runButton.textContent = 'Run Simulation';
+                DOMElements.runButton.classList.remove('stop-button');
                 DOMElements.statusBadge.textContent = 'Error';
                 DOMElements.statusBadge.classList.add('error');
                 DOMElements.formError.textContent = message;
@@ -560,12 +756,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             default: // 'ready'
                 DOMElements.statusBadge.textContent = 'Ready';
+                DOMElements.runButton.textContent = 'Run Simulation';
+                DOMElements.runButton.classList.remove('stop-button');
                 break;
         }
     }
 
-    function resetUI() {
+    function resetUI(hardReset = true) {
+        if (state.animationFrameId) {
+            cancelAnimationFrame(state.animationFrameId);
+            state.animationFrameId = null;
+        }
         state.simulationData = null;
+        if (hardReset) state.target = null;
+
+        // Clear animation canvas
+        DOMElements.animationCtx.clearRect(0, 0, DOMElements.animationCanvas.width, DOMElements.animationCanvas.height);
         
         // Reset summary cards
         Object.values(DOMElements.summary).forEach(el => el.textContent = '—');
@@ -578,12 +784,33 @@ document.addEventListener('DOMContentLoaded', () => {
         DOMElements.table.body.innerHTML = `<tr><td colspan="8" class="empty-table-message">Run a simulation to view calculated data.</td></tr>`;
         updateTableHeaders();
 
-        // Reset forms (optional, could be annoying)
-        // DOMElements.projectileForm.reset();
-        // DOMElements.rocketForm.reset();
+        if (hardReset) {
+            // DOMElements.projectileForm.reset(); // Can be annoying
+            // DOMElements.rocketForm.reset();
+            if (state.target) drawTarget(); // Redraw target if it exists
+            updateProjectileInputs(); // Restore defaults
+        }
 
         DOMElements.formError.hidden = true;
         setUIState('ready');
+    }
+    
+    function redrawOverlay() {
+        const ctx = DOMElements.animationCtx;
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        if (state.target) {
+            drawTarget();
+        }
+    }
+
+    function updateProjectileInputs() {
+        const presetKey = DOMElements.projectileType.value;
+        const preset = PROJECTILE_PRESETS[presetKey];
+        if (!preset) return;
+
+        DOMElements.projectileForm.elements['mass'].value = preset.mass;
+        DOMElements.projectileForm.elements['dragCoefficient'].value = preset.dragCoefficient;
+        DOMElements.projectileForm.elements['referenceArea'].value = preset.referenceArea;
     }
 
     // --- DATA DISPLAY ---
@@ -591,7 +818,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = result.data;
         if (!data || data.length === 0) return;
 
-        const lastPoint = data[data.length - 1];
+        const lastPoint = data[data.length - 1] || { x: 0, time: 0 };
         const maxAltitude = Math.max(...data.map(p => p.y));
         const maxSpeed = Math.max(...data.map(p => p.speed));
 
@@ -609,7 +836,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function updateCharts(data) {
+    function updateCharts(data, isFinalUpdate = false) {
         if (!data) return;
 
         const gridColor = state.isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
@@ -621,14 +848,32 @@ document.addEventListener('DOMContentLoaded', () => {
             responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
+            animation: {
+                duration: 0 // Disable default chart animations
+            },
             plugins: {
                 legend: { position: 'top' },
                 zoom: {
-                    pan: { enabled: true, mode: 'xy' },
-                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }
+                    pan: { 
+                        enabled: true, 
+                        mode: 'xy',
+                        onPanComplete: redrawOverlay
+                    },
+                    zoom: { 
+                        wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy',
+                        onZoomComplete: redrawOverlay
+                    }
                 }
             },
         };
+
+        // Sync animation canvas size with chart canvas
+        const chartCanvas = document.getElementById('trajectory-chart');
+        DOMElements.animationCanvas.width = chartCanvas.clientWidth;
+        DOMElements.animationCanvas.height = chartCanvas.clientHeight;
+        DOMElements.animationCanvas.style.position = 'absolute';
+        DOMElements.animationCanvas.style.pointerEvents = 'none';
+        if (state.target) drawTarget();
 
         // Trajectory Chart
         createOrUpdateChart('trajectory', 'trajectory-chart', {
@@ -637,7 +882,9 @@ document.addEventListener('DOMContentLoaded', () => {
             data: {
                 datasets: [{
                     label: 'Trajectory',
-                    data: data.map(p => ({ x: p.x, y: p.y })),
+                    // On initial call for projectile, data is empty for animation.
+                    // On final update, populate it fully.
+                    data: (state.simulationType === 'projectile' && !isFinalUpdate) ? [] : data.map(p => ({ x: p.x, y: p.y })),
                     borderColor: chartColors.blue,
                     backgroundColor: chartColors.blue,
                     showLine: true,
@@ -759,6 +1006,57 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             const ctx = document.getElementById(canvasId).getContext('2d');
             state.charts[id] = new Chart(ctx, config);
+        }
+    }
+
+    function drawTarget() {
+        if (!state.target || !state.charts.trajectory) return;
+    
+        const chart = state.charts.trajectory;
+        const ctx = DOMElements.animationCtx;
+        const chartArea = chart.chartArea;
+        if (!chartArea) return;
+    
+        // Convert target data coordinates to pixel coordinates
+        const xPixel = chart.scales.x.getPixelForValue(state.target.x);
+        const yPixel = chart.scales.y.getPixelForValue(state.target.y);
+    
+        // Convert 100-unit radius to pixels. Average of X and Y scales for a circular appearance.
+        const xPixelRadius = chart.scales.x.getPixelForValue(state.target.x + 100) - xPixel;
+        const yPixelRadius = yPixel - chart.scales.y.getPixelForValue(state.target.y + 100);
+        const pixelRadius = (xPixelRadius + yPixelRadius) / 2;
+    
+        // Draw hitbox circle
+        ctx.beginPath();
+        ctx.arc(xPixel, yPixel, pixelRadius, 0, 2 * Math.PI);
+        ctx.fillStyle = 'rgba(255, 99, 132, 0.3)'; // Semi-transparent red
+        ctx.strokeStyle = 'rgba(255, 99, 132, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    function drawAnimatedProjectile(position, chart) {
+        const ctx = DOMElements.animationCtx;
+        const chartArea = chart.chartArea;
+        if (!chartArea) return;
+
+        // Convert data coordinates to canvas pixel coordinates
+        const xPixel = chart.scales.x.getPixelForValue(position.x);
+        const yPixel = chart.scales.y.getPixelForValue(position.y);
+
+        // Clear previous frame
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        // Redraw the target so the projectile appears on top of it
+        if (state.target) drawTarget();
+
+        // Draw projectile if it's within the chart area
+        if (xPixel >= chartArea.left && xPixel <= chartArea.right && yPixel >= chartArea.top && yPixel <= chartArea.bottom) {
+            ctx.beginPath();
+            ctx.arc(xPixel, yPixel, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = state.isDarkMode ? chartColors.orange : chartColors.red;
+            ctx.fill();
         }
     }
 
