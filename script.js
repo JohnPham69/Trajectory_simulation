@@ -364,6 +364,12 @@ document.addEventListener('DOMContentLoaded', () => {
         rocketOnlyElements: document.querySelectorAll('.rocket-only'),
         summary: {
             maxAltitude: document.getElementById('maximum-altitude'),
+            // Rocket live readouts
+            rocketFlightPhase: document.getElementById('rocket-flight-phase'),
+            rocketLiveReadout: document.getElementById('rocket-live-readout'),
+            rocketPowerOutput: document.getElementById('rocket-power-output'),
+            rocketPowerSlider: document.getElementById('rocket-power'),
+            // Summary cards
             range: document.getElementById('horizontal-range'),
             flightTime: document.getElementById('flight-time'),
             maxSpeed: document.getElementById('maximum-speed'),
@@ -377,6 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         resetGraphButton: document.getElementById('reset-graph-button'),
         chartResetButtons: document.querySelectorAll('.chart-reset-button'),
+        profileButtons: document.querySelectorAll('.profile-button'),
         animationCanvas: document.getElementById('animation-canvas'),
         get animationCtx() {
             return this.animationCanvas.getContext('2d');
@@ -387,7 +394,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const chartConfigs = {
         trajectory: {
             type: 'scatter',
-            options: { scales: { x: { title: { display: true, text: 'Range (m)' } }, y: { title: { display: true, text: 'Altitude (m)' } } } }
+            options: {
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Range (m)' },
+                        min: 0,
+                        max: 20000 // Set a larger default max
+                    },
+                    y: {
+                        title: { display: true, text: 'Altitude (m)' },
+                        min: 0,
+                        max: 20000 // Set a larger default max
+                    }
+                }
+            }
         },
         velocity: {
             type: 'line',
@@ -445,6 +465,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         });
+        DOMElements.profileButtons.forEach(button => {
+            button.addEventListener('click', onProfileButtonClick);
+        });
+        DOMElements.summary.rocketPowerSlider.addEventListener('input', onPowerSliderChange);
     }
 
     function onChartClick(event) {
@@ -464,6 +488,21 @@ document.addEventListener('DOMContentLoaded', () => {
     
         state.target = { x: dataX, y: dataY };
         drawTarget(); // Draw the new target immediately
+    }
+
+    function onProfileButtonClick(event) {
+        const button = event.currentTarget;
+        const profile = button.dataset.profile;
+
+        DOMElements.profileButtons.forEach(btn => btn.classList.remove('active'));
+        button.classList.add('active');
+
+        document.getElementById('rocket-profile').value = profile;
+        // You might want to update some rocket parameters here based on the profile
+    }
+
+    function onPowerSliderChange(event) {
+        DOMElements.summary.rocketPowerOutput.textContent = `${event.currentTarget.value}%`;
     }
 
     function resetGraph() {
@@ -547,17 +586,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Use setTimeout to allow the UI to update before the heavy computation
         setTimeout(() => {
             try {
-                if (state.simulationType === 'projectile') {
-                    animateProjectile(params);
-                } else {
-                    // V2 animation is not implemented, run as before
-                    const result = simulateV2Trajectory(params);
-                    state.simulationData = result.data;
-                    updateSummary(result);
-                    updateCharts(result.data);
-                    updateTable(result.data);
-                    setUIState('complete');
-                }
+                animateSimulation(params);
             } catch (error) {
                 console.error("Simulation failed:", error);
                 setUIState('error', 'Simulation failed. Check console for details.');
@@ -565,24 +594,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 50);
     }
     
-    function animateProjectile(params) {
+    function animateSimulation(params) {
         const { timeStep } = params;
-        const g = params.gravity;
+        const isProjectile = state.simulationType === 'projectile';
 
-        // Initial conditions
-        const launchAngleRad = (params.launchAngle * Math.PI) / 180;
+        // --- Initial conditions ---
         let pos = { x: 0.0, y: 0.0 };
-        let vel = {
-            vx: params.initialVelocity * Math.cos(launchAngleRad),
-            vy: params.initialVelocity * Math.sin(launchAngleRad)
-        };
+        let vel = { vx: 0.0, vy: 0.0 };
         let time = 0;
+        let mass = isProjectile ? params.mass : params.initialMass;
+        const massFlowRate = isProjectile ? 0 : (params.initialMass - params.endMass) / params.burnTime;
+
+        if (isProjectile) {
+            const launchAngleRad = (params.launchAngle * Math.PI) / 180;
+            vel.vx = params.initialVelocity * Math.cos(launchAngleRad);
+            vel.vy = params.initialVelocity * Math.sin(launchAngleRad);
+        }
 
         state.simulationData = [];
+        let maxAltitude = 0, maxSpeed = 0, maxMach = 0, burnoutAltitude = -1;
+
+        // --- Chart references ---
         const trajectoryChart = state.charts.trajectory;
         const velocityChart = state.charts.velocity;
         const altitudeChart = state.charts.altitude;
+        const massChart = isProjectile ? null : state.charts.mass;
+        const machChart = isProjectile ? null : state.charts.mach;
 
+        // --- Live UI update helper ---
+        function updateLiveUI(dataPoint) {
+            updateLiveSummary(dataPoint, maxAltitude, maxSpeed, maxMach);
+            if (!isProjectile) {
+                const phase = time < params.burnTime ? "Boost Phase" : "Coast Phase";
+                const readout = `Alt: ${pos.y.toFixed(0)}m, Vel: ${dataPoint.speed.toFixed(1)}m/s`;
+                DOMElements.summary.rocketFlightPhase.textContent = phase;
+                DOMElements.summary.rocketLiveReadout.textContent = readout;
+            }
+        }
+        
         function animationLoop() {
             // --- Game Logic: Hit Detection ---
             if (state.target) {
@@ -595,51 +644,114 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            if (pos.y < 0 && time > 0) {
+            const isFinished = (pos.y < 0 && time > 0) || time > (params.maxTime || Infinity);
+            if (isFinished) {
                 setUIState('complete');
                 state.animationFrameId = null;
                 // Final updates
-                updateSummary({ data: state.simulationData });
+                const result = { data: state.simulationData, burnoutAltitude };
+                updateSummary(result);
                 updateCharts(state.simulationData, true); // Update all charts with final data
                 updateTable(state.simulationData);
                 return; // End animation
             }
 
+            // --- Physics Calculation ---
             const speed = Math.sqrt(vel.vx ** 2 + vel.vy ** 2);
-            const dragForce = 0.5 * params.dragCoefficient * params.airDensity * params.referenceArea * speed ** 2;
-            const dragAccel = dragForce / params.mass;
-            const ax = speed > 1e-6 ? -dragAccel * (vel.vx / speed) : 0;
-            const ay = speed > 1e-6 ? -g - (dragAccel * (vel.vy / speed)) : -g;
+            let acceleration = { x: 0, y: 0 };
+            let dataPoint = {};
 
-            vel.vx += ax * timeStep;
-            vel.vy += ay * timeStep;
+            if (isProjectile) {
+                const g = params.gravity;
+                const dragForce = 0.5 * params.dragCoefficient * params.airDensity * params.referenceArea * speed ** 2;
+                const dragAccel = dragForce / mass;
+                acceleration.x = speed > 1e-6 ? -dragAccel * (vel.vx / speed) : 0;
+                acceleration.y = speed > 1e-6 ? -g - (dragAccel * (vel.vy / speed)) : -g;
+            } else { // Rocket
+                const inBurnPhase = time < params.burnTime;
+                if (inBurnPhase) {
+                    mass = Math.max(params.endMass, params.initialMass - massFlowRate * time);
+                }
+                if (burnoutAltitude < 0 && time >= params.burnTime) {
+                    burnoutAltitude = pos.y;
+                }
+
+                const currentThrust = inBurnPhase ? params.thrust : 0.0;
+                const pitchAngleRad = (getPitchAngle(time, params.pitchStart, params.pitchEnd, params.startAngle, params.endAngle) * Math.PI) / 180;
+                const thrustVector = {
+                    x: currentThrust * Math.cos(pitchAngleRad),
+                    y: currentThrust * Math.sin(pitchAngleRad)
+                };
+
+                let dragVector = { x: 0, y: 0 };
+                if (speed > 1e-6) {
+                    const dragForce = calculateDragForce(speed, pos.y, params.frontalArea);
+                    dragVector = { x: -dragForce * (vel.vx / speed), y: -dragForce * (vel.vy / speed) };
+                }
+
+                const gravityVector = { x: 0.0, y: -mass * calculateGravity(pos.y) };
+
+                const totalForce = {
+                    x: thrustVector.x + dragVector.x + gravityVector.x,
+                    y: thrustVector.y + dragVector.y + gravityVector.y
+                };
+                acceleration = { x: totalForce.x / mass, y: totalForce.y / mass };
+            }
+
+            // --- Euler Integration ---
+            vel.vx += acceleration.x * timeStep;
+            vel.vy += acceleration.y * timeStep;
             pos.x += vel.vx * timeStep;
             pos.y += vel.vy * timeStep;
             time += timeStep;
 
-            const dataPoint = { time, ...pos, ...vel, speed: Math.sqrt(vel.vx**2 + vel.vy**2) };
+            // --- Data Point Creation & Max Value Tracking ---
+            maxAltitude = Math.max(maxAltitude, pos.y);
+            maxSpeed = Math.max(maxSpeed, speed);
+
+            if (isProjectile) {
+                dataPoint = { time, ...pos, ...vel, speed };
+            } else {
+                const mach = calculateMachNumber(speed, pos.y);
+                const cd = calculateDragCoefficient(speed, pos.y);
+                maxMach = Math.max(maxMach, mach);
+                dataPoint = { time, ...pos, ...vel, speed, mass, mach, cd };
+            }
             state.simulationData.push(dataPoint);
 
-            // Update charts incrementally
+            // --- Live UI Updates ---
+            updateLiveUI(dataPoint);
+            drawAnimatedProjectile(pos, trajectoryChart);
+
+            // --- Incremental Chart Updates ---
+            const timeLabel = dataPoint.time.toFixed(1);
             if (trajectoryChart) {
                 trajectoryChart.data.datasets[0].data.push({ x: pos.x, y: pos.y });
                 trajectoryChart.update('none'); // 'none' for no animation
             }
             if (velocityChart) {
-                const timeLabel = dataPoint.time.toFixed(1);
                 velocityChart.data.labels.push(timeLabel);
-                velocityChart.data.datasets[0].data.push(dataPoint.speed); // Total Speed
-                velocityChart.data.datasets[1].data.push(dataPoint.vx);    // Vx
-                velocityChart.data.datasets[2].data.push(dataPoint.vy);    // Vy
+                velocityChart.data.datasets[0].data.push(dataPoint.speed);
+                velocityChart.data.datasets[1].data.push(dataPoint.vx);
+                velocityChart.data.datasets[2].data.push(dataPoint.vy);
                 velocityChart.update('none');
             }
             if (altitudeChart) {
-                const timeLabel = dataPoint.time.toFixed(1);
                 altitudeChart.data.labels.push(timeLabel);
                 altitudeChart.data.datasets[0].data.push(dataPoint.y);
                 altitudeChart.update('none');
             }
-            drawAnimatedProjectile(pos, trajectoryChart);
+            if (massChart) {
+                massChart.data.labels.push(timeLabel);
+                massChart.data.datasets[0].data.push(dataPoint.mass);
+                massChart.update('none');
+            }
+            if (machChart) {
+                machChart.data.labels.push(timeLabel);
+                machChart.data.datasets[0].data.push(dataPoint.mach);
+                machChart.data.datasets[1].data.push(dataPoint.cd);
+                machChart.update('none');
+            }
 
             state.animationFrameId = requestAnimationFrame(animationLoop);
         }
@@ -665,8 +777,8 @@ document.addEventListener('DOMContentLoaded', () => {
         for (const [name, value] of formData.entries()) {
             const input = form.elements[name];
 
-            // Skip numeric validation for the projectile type selector
-            if (name === 'projectileType') {
+            // Skip numeric validation for non-numeric fields
+            if (['projectileType', 'rocketPreset', 'rocketProfile'].includes(name)) {
                 continue;
             }
 
@@ -773,6 +885,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // Clear animation canvas
         DOMElements.animationCtx.clearRect(0, 0, DOMElements.animationCanvas.width, DOMElements.animationCanvas.height);
         
+        // Reset rocket live readouts
+        if (state.simulationType === 'rocket') {
+            DOMElements.summary.rocketFlightPhase.textContent = 'Ready for launch';
+            DOMElements.summary.rocketLiveReadout.textContent = 'Select a profile and run the simulation.';
+        }
+
         // Reset summary cards
         Object.values(DOMElements.summary).forEach(el => el.textContent = '—');
 
@@ -814,6 +932,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- DATA DISPLAY ---
+    function updateLiveSummary(point, maxAltitude, maxSpeed, maxMach = 0) {
+        if (!point) return;
+
+        const format = (num) => num.toLocaleString(undefined, { maximumFractionDigits: 1 });
+
+        DOMElements.summary.maxAltitude.textContent = format(maxAltitude);
+        DOMElements.summary.range.textContent = format(point.x);
+        DOMElements.summary.flightTime.textContent = format(point.time);
+        DOMElements.summary.maxSpeed.textContent = format(maxSpeed);
+
+        if (state.simulationType === 'rocket') {
+            DOMElements.summary.maxMach.textContent = maxMach.toFixed(2);
+            // Burnout altitude is handled by the final updateSummary call
+        }
+    }
+
+
     function updateSummary(result) {
         const data = result.data;
         if (!data || data.length === 0) return;
@@ -883,7 +1018,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 datasets: [{
                     label: 'Trajectory',
                     // On initial call for projectile, data is empty for animation.
-                    // On final update, populate it fully.
+                // On final update, populate it fully to ensure it's all there.
                     data: (state.simulationType === 'projectile' && !isFinalUpdate) ? [] : data.map(p => ({ x: p.x, y: p.y })),
                     borderColor: chartColors.blue,
                     backgroundColor: chartColors.blue,
@@ -899,7 +1034,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ...chartConfigs.velocity,
             options: { ...commonOptions, ...chartConfigs.velocity.options },
             data: {
-                labels: data.map(p => p.time.toFixed(1)),
+                labels: (isFinalUpdate) ? data.map(p => p.time.toFixed(1)) : [],
                 datasets: [
                     {
                         label: 'Total Speed',
@@ -933,7 +1068,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ...chartConfigs.altitude,
             options: { ...commonOptions, ...chartConfigs.altitude.options },
             data: {
-                labels: data.map(p => p.time.toFixed(1)),
+                labels: (isFinalUpdate) ? data.map(p => p.time.toFixed(1)) : [],
                 datasets: [{
                     label: 'Altitude',
                     data: data.map(p => p.y),
@@ -952,7 +1087,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ...chartConfigs.mass,
                 options: { ...commonOptions, ...chartConfigs.mass.options },
                 data: {
-                    labels: data.map(p => p.time.toFixed(1)),
+                    labels: (isFinalUpdate) ? data.map(p => p.time.toFixed(1)) : [],
                     datasets: [{
                         label: 'Mass',
                         data: data.map(p => p.mass),
@@ -975,7 +1110,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 },
                 data: {
-                    labels: data.map(p => p.time.toFixed(1)),
+                    labels: (isFinalUpdate) ? data.map(p => p.time.toFixed(1)) : [],
                     datasets: [
                         {
                             label: 'Mach',

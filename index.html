@@ -103,9 +103,11 @@
           <div class="input-grid">
             <div class="input-group full-width">
               <label for="projectile-type">Projectile Type</label>
-              <select id="projectile-type" name="projectileType">
-                <!-- Options will be populated by JS -->
-              </select>
+              <div class="select-wrapper">
+                <select id="projectile-type" name="projectileType">
+                  <!-- Options will be populated by JS -->
+                </select>
+              </div>
             </div>
 
             <div class="input-group">
@@ -268,198 +270,81 @@
         hidden
       >
         <form id="rocket-form" novalidate>
-          <fieldset>
-            <legend>Rocket parameters</legend>
-
-            <div class="input-grid">
-              <div class="input-group">
-                <label for="rocket-initial-mass">Initial mass</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-initial-mass"
-                    name="initialMass"
-                    type="number"
-                    value="12500"
-                    min="1"
-                    max="10000000"
-                    step="1"
-                    required
-                  />
-                  <span>kg</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="rocket-dry-mass">Final mass</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-dry-mass"
-                    name="endMass"
-                    type="number"
-                    value="3780"
-                    min="1"
-                    max="10000000"
-                    step="1"
-                    required
-                  />
-                  <span>kg</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="rocket-burn-time">Burn time</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-burn-time"
-                    name="burnTime"
-                    type="number"
-                    value="65"
-                    min="0.1"
-                    max="10000"
-                    step="0.1"
-                    required
-                  />
-                  <span>s</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="rocket-thrust">Thrust</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-thrust"
-                    name="thrust"
-                    type="number"
-                    value="245000"
-                    min="0"
-                    max="1000000000"
-                    step="100"
-                    required
-                  />
-                  <span>N</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="rocket-frontal-area">Frontal area</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-frontal-area"
-                    name="frontalArea"
-                    type="number"
-                    value="2.14"
-                    min="0.0001"
-                    max="10000"
-                    step="0.01"
-                    required
-                  />
-                  <span>m²</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="rocket-start-angle">Starting pitch angle</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-start-angle"
-                    name="startAngle"
-                    type="number"
-                    value="90"
-                    min="0"
-                    max="180"
-                    step="0.1"
-                    required
-                  />
-                  <span>°</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="rocket-end-angle">Final pitch angle</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-end-angle"
-                    name="endAngle"
-                    type="number"
-                    value="45"
-                    min="0"
-                    max="180"
-                    step="0.1"
-                    required
-                  />
-                  <span>°</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="rocket-pitch-start">Pitch program begins</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-pitch-start"
-                    name="pitchStart"
-                    type="number"
-                    value="5"
-                    min="0"
-                    max="10000"
-                    step="0.1"
-                    required
-                  />
-                  <span>s</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="rocket-pitch-end">Pitch program ends</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-pitch-end"
-                    name="pitchEnd"
-                    type="number"
-                    value="45"
-                    min="0"
-                    max="10000"
-                    step="0.1"
-                    required
-                  />
-                  <span>s</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="rocket-time-step">Time step</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-time-step"
-                    name="timeStep"
-                    type="number"
-                    value="0.05"
-                    min="0.001"
-                    max="1"
-                    step="0.001"
-                    required
-                  />
-                  <span>s</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="rocket-max-time">Maximum simulation time</label>
-                <div class="input-with-unit">
-                  <input
-                    id="rocket-max-time"
-                    name="maxTime"
-                    type="number"
-                    value="1000"
-                    min="1"
-                    max="100000"
-                    step="1"
-                    required
-                  />
-                  <span>s</span>
-                </div>
+          <div class="input-grid">
+            <div class="input-group full-width">
+              <label for="rocket-preset">Rocket</label>
+              <div class="select-wrapper">
+                <select id="rocket-preset" name="rocketPreset">
+                  <option value="historical">Historical V-2</option>
+                  <option value="experimental">Experimental V-2</option>
+                </select>
               </div>
             </div>
-          </fieldset>
+
+            <div class="input-group full-width">
+              <label>Trajectory profile</label>
+              <div class="profile-selector" role="group" aria-label="Trajectory profile">
+                <button type="button" class="profile-button" data-profile="steep">Steep</button>
+                <button type="button" class="profile-button active" data-profile="standard">Standard</button>
+                <button type="button" class="profile-button" data-profile="longRange">Long range</button>
+              </div>
+              <input id="rocket-profile" name="rocketProfile" type="hidden" value="standard" />
+            </div>
+
+            <div class="input-group">
+              <label for="rocket-start-angle">Initial flight angle</label>
+              <div class="input-with-unit">
+                <input id="rocket-start-angle" name="startAngle" type="number" value="90" min="45" max="90" step="0.1" required />
+                <span>°</span>
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label for="rocket-playback-speed">Playback speed</label>
+              <div class="select-wrapper compact-select">
+                <select id="rocket-playback-speed" name="playbackSpeed">
+                  <option value="1">1×</option>
+                  <option value="5">5×</option>
+                  <option value="10" selected>10×</option>
+                  <option value="25">25×</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="input-group full-width">
+              <div class="range-label-row">
+                <label for="rocket-power">Engine power</label>
+                <output id="rocket-power-output" for="rocket-power">100%</output>
+              </div>
+              <input id="rocket-power" class="power-slider" name="powerPercent" type="range" min="70" max="120" value="100" step="1" />
+              <div class="range-scale"><span>70%</span><span>Historical thrust</span><span>120%</span></div>
+            </div>
+          </div>
+
+          <div class="flight-phase-panel" aria-live="polite">
+            <span class="flight-phase-label">Flight phase</span>
+            <strong id="rocket-flight-phase">Ready for launch</strong>
+            <span id="rocket-live-readout">Select a profile and run the simulation.</span>
+          </div>
+
+          <details class="advanced-settings">
+            <summary>Advanced Settings</summary>
+            <fieldset>
+              <legend class="visually-hidden">Advanced V-2 parameters</legend>
+              <div class="input-grid">
+                <div class="input-group"><label for="rocket-initial-mass">Initial mass</label><div class="input-with-unit"><input id="rocket-initial-mass" name="initialMass" type="number" value="12500" min="1" max="10000000" step="1" required /><span>kg</span></div></div>
+                <div class="input-group"><label for="rocket-dry-mass">Dry mass</label><div class="input-with-unit"><input id="rocket-dry-mass" name="endMass" type="number" value="3780" min="1" max="10000000" step="1" required /><span>kg</span></div></div>
+                <div class="input-group"><label for="rocket-burn-time">Burn time</label><div class="input-with-unit"><input id="rocket-burn-time" name="burnTime" type="number" value="65" min="0.1" max="10000" step="0.1" required /><span>s</span></div></div>
+                <div class="input-group"><label for="rocket-thrust">Thrust</label><div class="input-with-unit"><input id="rocket-thrust" name="thrust" type="number" value="245000" min="0" max="1000000000" step="100" required /><span>N</span></div></div>
+                <div class="input-group"><label for="rocket-frontal-area">Frontal area</label><div class="input-with-unit"><input id="rocket-frontal-area" name="frontalArea" type="number" value="2.14" min="0.0001" max="10000" step="0.01" required /><span>m²</span></div></div>
+                <div class="input-group"><label for="rocket-end-angle">Final pitch angle</label><div class="input-with-unit"><input id="rocket-end-angle" name="endAngle" type="number" value="45" min="0" max="90" step="0.1" required /><span>°</span></div></div>
+                <div class="input-group"><label for="rocket-pitch-start">Pitch begins</label><div class="input-with-unit"><input id="rocket-pitch-start" name="pitchStart" type="number" value="5" min="0" max="10000" step="0.1" required /><span>s</span></div></div>
+                <div class="input-group"><label for="rocket-pitch-end">Pitch ends</label><div class="input-with-unit"><input id="rocket-pitch-end" name="pitchEnd" type="number" value="45" min="0" max="10000" step="0.1" required /><span>s</span></div></div>
+                <div class="input-group"><label for="rocket-time-step">Time step</label><div class="input-with-unit"><input id="rocket-time-step" name="timeStep" type="number" value="0.05" min="0.001" max="1" step="0.001" required /><span>s</span></div></div>
+                <div class="input-group"><label for="rocket-max-time">Maximum time</label><div class="input-with-unit"><input id="rocket-max-time" name="maxTime" type="number" value="1000" min="1" max="100000" step="1" required /><span>s</span></div></div>
+              </div>
+            </fieldset>
+          </details>
         </form>
       </section>
 
