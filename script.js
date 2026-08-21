@@ -3,6 +3,9 @@
    Application and Simulation Logic
    ========================================================= */
 
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
 const PROJECTILE_PRESETS = {
     'm982': {
         name: 'M982 Excalibur Shell',
@@ -342,11 +345,14 @@ document.addEventListener('DOMContentLoaded', () => {
         simulationData: null,
         target: null, // {x, y} for the game target
         animationFrameId: null,
+        activeExplosions: [], // Holds our particle systems once spawned
         charts: {},
         isDarkMode: window.matchMedia('(prefers-color-scheme: dark)').matches
     };
 
-    // --- DOM ELEMENTS ---
+    // --- DOM & 3D ELEMENTS ---
+    let three = { scene: null, camera: null, renderer: null, controls: null, projectile: null, ground: null, line: null, scenery: null };
+
     const DOMElements = {
         themeToggle: document.getElementById('theme-toggle'),
         projectileTab: document.getElementById('projectile-tab'),
@@ -354,6 +360,7 @@ document.addEventListener('DOMContentLoaded', () => {
         projectilePanel: document.getElementById('projectile-panel'),
         rocketPanel: document.getElementById('rocket-panel'),
         projectileType: document.getElementById('projectile-type'),
+        view3DToggle: null, // Will be created dynamically
         projectileForm: document.getElementById('projectile-form'),
         rocketForm: document.getElementById('rocket-form'),
         runButton: document.getElementById('run-simulation'),
@@ -387,7 +394,9 @@ document.addEventListener('DOMContentLoaded', () => {
         animationCanvas: document.getElementById('animation-canvas'),
         get animationCtx() {
             return this.animationCanvas.getContext('2d');
-        }
+        },
+        threeCanvas: document.getElementById('three-canvas'),
+        trajectoryChartCanvas: document.getElementById('trajectory-chart'),
     };
 
     // --- CHART CONFIGURATION ---
@@ -440,14 +449,35 @@ document.addEventListener('DOMContentLoaded', () => {
         setupEventListeners();
         applyTheme(state.isDarkMode);
         populateProjectilePresets();
+        create3DViewToggle();
         resetUI();
         updateCharts([]); // Create empty charts on load so target can be set
     }
 
+    function create3DViewToggle() {
+        const container = document.createElement('div');
+        container.className = 'input-group full-width';
+        container.style.flexDirection = 'row';
+        container.style.alignItems = 'center';
+        container.style.gap = '10px';
+        container.style.marginTop = '0.5rem';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = 'view-3d-toggle';
+        DOMElements.view3DToggle = checkbox;
+
+        const label = document.createElement('label');
+        label.htmlFor = 'view-3d-toggle';
+        label.textContent = 'Enable 3D View';
+        label.style.fontWeight = 'bold';
+
+        container.append(checkbox, label);
+        DOMElements.projectileForm.querySelector('.input-grid').prepend(container);
+    }
     // --- EVENT LISTENERS ---
     function setupEventListeners() {
-        const trajectoryChartCanvas = document.getElementById('trajectory-chart');
-        trajectoryChartCanvas.addEventListener('click', onChartClick);
+        DOMElements.trajectoryChartCanvas.addEventListener('click', onChartClick);
         DOMElements.themeToggle.addEventListener('click', toggleTheme);
         DOMElements.projectileTab.addEventListener('click', () => switchSimulationType('projectile'));
         DOMElements.rocketTab.addEventListener('click', () => switchSimulationType('rocket'));
@@ -469,6 +499,7 @@ document.addEventListener('DOMContentLoaded', () => {
             button.addEventListener('click', onProfileButtonClick);
         });
         DOMElements.summary.rocketPowerSlider.addEventListener('input', onPowerSliderChange);
+        document.addEventListener('keydown', onKeyDown);
     }
 
     function onChartClick(event) {
@@ -505,6 +536,10 @@ document.addEventListener('DOMContentLoaded', () => {
         DOMElements.summary.rocketPowerOutput.textContent = `${event.currentTarget.value}%`;
     }
 
+    function onKeyDown(event) {
+        // OrbitControls handles camera movement, so this is no longer needed.
+    }
+
     function resetGraph() {
         state.target = null;
         state.simulationData = null;
@@ -527,6 +562,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function onProjectileTypeChange() {
         updateProjectileInputs();
     }
+
     // --- THEME ---
     function toggleTheme() {
         state.isDarkMode = !state.isDarkMode;
@@ -586,33 +622,51 @@ document.addEventListener('DOMContentLoaded', () => {
         // Use setTimeout to allow the UI to update before the heavy computation
         setTimeout(() => {
             try {
-                animateSimulation(params);
+                const is3D = state.simulationType === 'projectile' && DOMElements.view3DToggle.checked;
+                if (is3D) {
+                    DOMElements.trajectoryChartCanvas.style.display = 'none';
+                    DOMElements.threeCanvas.style.display = 'block';
+                    init3DScene();
+                } else {
+                    DOMElements.trajectoryChartCanvas.style.display = 'block';
+                    DOMElements.threeCanvas.style.display = 'none';
+                }
+
+                // Run the appropriate simulation to get the static data array first.
+                const simulationResult = state.simulationType === 'projectile'
+                    ? simulateProjectileTrajectory(params)
+                    : simulateV2Trajectory(params);
+
+                // Start the frame-by-frame playback animation.
+                playbackAnimation(simulationResult);
+
             } catch (error) {
                 console.error("Simulation failed:", error);
                 setUIState('error', 'Simulation failed. Check console for details.');
             }
         }, 50);
     }
-    
-    function animateSimulation(params) {
-        const { timeStep } = params;
-        const isProjectile = state.simulationType === 'projectile';
 
-        // --- Initial conditions ---
-        let pos = { x: 0.0, y: 0.0 };
-        let vel = { vx: 0.0, vy: 0.0 };
-        let time = 0;
-        let mass = isProjectile ? params.mass : params.initialMass;
-        const massFlowRate = isProjectile ? 0 : (params.initialMass - params.endMass) / params.burnTime;
-
-        if (isProjectile) {
-            const launchAngleRad = (params.launchAngle * Math.PI) / 180;
-            vel.vx = params.initialVelocity * Math.cos(launchAngleRad);
-            vel.vy = params.initialVelocity * Math.sin(launchAngleRad);
+    /**
+     * Animates a pre-calculated trajectory frame by frame.
+     * @param {object} simulation - The result object from a simulation function.
+     * @param {Array<object>} simulation.data - The array of trajectory data points.
+     */
+    function playbackAnimation(simulation) {
+        const trajectoryData = simulation.data;
+        if (!trajectoryData || trajectoryData.length === 0) {
+            setUIState('error', 'Simulation produced no data.');
+            return;
         }
 
-        state.simulationData = [];
-        let maxAltitude = 0, maxSpeed = 0, maxMach = 0, burnoutAltitude = -1;
+        const is3D = state.simulationType === 'projectile' && DOMElements.view3DToggle.checked;
+        const isProjectile = state.simulationType === 'projectile';
+        state.simulationData = trajectoryData; // Store full data for other UI components
+
+        // --- Playback state tracking ---
+        let currentFrameIndex = 0;
+
+        const trajectoryPoints = [];
 
         // --- Chart references ---
         const trajectoryChart = state.charts.trajectory;
@@ -622,141 +676,127 @@ document.addEventListener('DOMContentLoaded', () => {
         const machChart = isProjectile ? null : state.charts.mach;
 
         // --- Live UI update helper ---
-        function updateLiveUI(dataPoint) {
-            updateLiveSummary(dataPoint, maxAltitude, maxSpeed, maxMach);
+        function updateLiveUI(dataPoint, maxValues) {
+            updateLiveSummary(dataPoint, maxValues.maxAltitude, maxValues.maxSpeed, maxValues.maxMach);
             if (!isProjectile) {
-                const phase = time < params.burnTime ? "Boost Phase" : "Coast Phase";
-                const readout = `Alt: ${pos.y.toFixed(0)}m, Vel: ${dataPoint.speed.toFixed(1)}m/s`;
+                // Use a reasonable default for burnTime if not in simulation data
+                const burnTime = simulation.data[simulation.data.length - 1]?.burnTime || 65;
+                const phase = dataPoint.time < burnTime ? "Boost Phase" : "Coast Phase";
+                const readout = `Alt: ${dataPoint.y.toFixed(0)}m, Vel: ${dataPoint.speed.toFixed(1)}m/s`;
                 DOMElements.summary.rocketFlightPhase.textContent = phase;
                 DOMElements.summary.rocketLiveReadout.textContent = readout;
             }
         }
         
+        // Pre-calculate max values for smoother live updates
+        const maxValues = {
+            maxAltitude: Math.max(...trajectoryData.map(p => p.y)),
+            maxSpeed: Math.max(...trajectoryData.map(p => p.speed)),
+            maxMach: isProjectile ? 0 : Math.max(...trajectoryData.map(p => p.mach || 0)),
+        };
+
         function animationLoop() {
-            // --- Game Logic: Hit Detection ---
-            if (state.target) {
-                const distance = Math.sqrt((pos.x - state.target.x) ** 2 + (pos.y - state.target.y) ** 2);
-                if (distance <= 100) { // 100-unit hitbox radius
-                    setUIState('hit');
-                    cancelAnimationFrame(state.animationFrameId);
-                    state.animationFrameId = null;
-                    return; // Stop the simulation
-                }
-            }
-
-            const isFinished = (pos.y < 0 && time > 0) || time > (params.maxTime || Infinity);
-            if (isFinished) {
-                setUIState('complete');
-                state.animationFrameId = null;
-                // Final updates
-                const result = { data: state.simulationData, burnoutAltitude };
-                updateSummary(result);
-                updateCharts(state.simulationData, true); // Update all charts with final data
-                updateTable(state.simulationData);
-                return; // End animation
-            }
-
-            // --- Physics Calculation ---
-            const speed = Math.sqrt(vel.vx ** 2 + vel.vy ** 2);
-            let acceleration = { x: 0, y: 0 };
-            let dataPoint = {};
-
-            if (isProjectile) {
-                const g = params.gravity;
-                const dragForce = 0.5 * params.dragCoefficient * params.airDensity * params.referenceArea * speed ** 2;
-                const dragAccel = dragForce / mass;
-                acceleration.x = speed > 1e-6 ? -dragAccel * (vel.vx / speed) : 0;
-                acceleration.y = speed > 1e-6 ? -g - (dragAccel * (vel.vy / speed)) : -g;
-            } else { // Rocket
-                const inBurnPhase = time < params.burnTime;
-                if (inBurnPhase) {
-                    mass = Math.max(params.endMass, params.initialMass - massFlowRate * time);
-                }
-                if (burnoutAltitude < 0 && time >= params.burnTime) {
-                    burnoutAltitude = pos.y;
-                }
-
-                const currentThrust = inBurnPhase ? params.thrust : 0.0;
-                const pitchAngleRad = (getPitchAngle(time, params.pitchStart, params.pitchEnd, params.startAngle, params.endAngle) * Math.PI) / 180;
-                const thrustVector = {
-                    x: currentThrust * Math.cos(pitchAngleRad),
-                    y: currentThrust * Math.sin(pitchAngleRad)
-                };
-
-                let dragVector = { x: 0, y: 0 };
-                if (speed > 1e-6) {
-                    const dragForce = calculateDragForce(speed, pos.y, params.frontalArea);
-                    dragVector = { x: -dragForce * (vel.vx / speed), y: -dragForce * (vel.vy / speed) };
-                }
-
-                const gravityVector = { x: 0.0, y: -mass * calculateGravity(pos.y) };
-
-                const totalForce = {
-                    x: thrustVector.x + dragVector.x + gravityVector.x,
-                    y: thrustVector.y + dragVector.y + gravityVector.y
-                };
-                acceleration = { x: totalForce.x / mass, y: totalForce.y / mass };
-            }
-
-            // --- Euler Integration ---
-            vel.vx += acceleration.x * timeStep;
-            vel.vy += acceleration.y * timeStep;
-            pos.x += vel.vx * timeStep;
-            pos.y += vel.vy * timeStep;
-            time += timeStep;
-
-            // --- Data Point Creation & Max Value Tracking ---
-            maxAltitude = Math.max(maxAltitude, pos.y);
-            maxSpeed = Math.max(maxSpeed, speed);
-
-            if (isProjectile) {
-                dataPoint = { time, ...pos, ...vel, speed };
-            } else {
-                const mach = calculateMachNumber(speed, pos.y);
-                const cd = calculateDragCoefficient(speed, pos.y);
-                maxMach = Math.max(maxMach, mach);
-                dataPoint = { time, ...pos, ...vel, speed, mass, mach, cd };
-            }
-            state.simulationData.push(dataPoint);
-
-            // --- Live UI Updates ---
-            updateLiveUI(dataPoint);
-            drawAnimatedProjectile(pos, trajectoryChart);
-
-            // --- Incremental Chart Updates ---
-            const timeLabel = dataPoint.time.toFixed(1);
-            if (trajectoryChart) {
-                trajectoryChart.data.datasets[0].data.push({ x: pos.x, y: pos.y });
-                trajectoryChart.update('none'); // 'none' for no animation
-            }
-            if (velocityChart) {
-                velocityChart.data.labels.push(timeLabel);
-                velocityChart.data.datasets[0].data.push(dataPoint.speed);
-                velocityChart.data.datasets[1].data.push(dataPoint.vx);
-                velocityChart.data.datasets[2].data.push(dataPoint.vy);
-                velocityChart.update('none');
-            }
-            if (altitudeChart) {
-                altitudeChart.data.labels.push(timeLabel);
-                altitudeChart.data.datasets[0].data.push(dataPoint.y);
-                altitudeChart.update('none');
-            }
-            if (massChart) {
-                massChart.data.labels.push(timeLabel);
-                massChart.data.datasets[0].data.push(dataPoint.mass);
-                massChart.update('none');
-            }
-            if (machChart) {
-                machChart.data.labels.push(timeLabel);
-                machChart.data.datasets[0].data.push(dataPoint.mach);
-                machChart.data.datasets[1].data.push(dataPoint.cd);
-                machChart.update('none');
-            }
-
             state.animationFrameId = requestAnimationFrame(animationLoop);
+
+            // Always update the 3D scene if it's active
+            if (is3D) three.renderer.render(three.scene, three.camera);
+
+            // SCENARIO A: Projectile is flying
+            if (currentFrameIndex < trajectoryData.length) {
+                const frameData = trajectoryData[currentFrameIndex];
+
+                // Update UI and visuals
+                updateLiveUI(frameData, maxValues);
+                if (is3D) {
+                    trajectoryPoints.push(new THREE.Vector3(frameData.x, frameData.y, 0));
+                    update3DScene(frameData, trajectoryPoints);
+                } else {
+                    drawAnimatedProjectile(frameData, trajectoryChart);
+                }
+
+                currentFrameIndex++;
+
+                // IMPACT CHECK: Trigger on the exact frame the loop hits the final index
+                if (currentFrameIndex === trajectoryData.length) {
+                    setUIState('complete');
+                    updateSummary(simulation);
+                    updateTable(trajectoryData);
+
+                    if (is3D) {
+                        // Hide the shell mesh
+                        three.projectile.visible = false;
+                        // Spawn a final blast at the impact point
+                        const finalPos = trajectoryData[trajectoryData.length - 1];
+                        const terrainHeight = getTerrainHeight(finalPos.x, 0);
+                        state.activeExplosions.push(createBlast(finalPos.x, terrainHeight, 0));
+                    }
+                }
+            }
+
+            // SCENARIO B: Projectile has hit; animate the active particle system
+            // Animate all active explosions and clean up faded ones
+            state.activeExplosions = state.activeExplosions.filter(explosion => {
+                if (explosion.material.opacity <= 0) {
+                    // Cleanup memory
+                    three.scene.remove(explosion.mesh);
+                    explosion.geometry.dispose();
+                    explosion.material.dispose();
+                    return false; // Remove from array
+                }
+
+                const positionsAttr = explosion.geometry.attributes.position.array;
+
+                for (let i = 0; i < explosion.count; i++) {
+                    // Expand individual particle vectors outward
+                    positionsAttr[i * 3] += explosion.velocities[i].x * 0.1;
+                    positionsAttr[i * 3 + 1] += explosion.velocities[i].y * 0.1;
+                    positionsAttr[i * 3 + 2] += explosion.velocities[i].z * 0.1;
+                    // Pull particles downward with simulated gravity
+                    explosion.velocities[i].y -= 2.5;
+                }
+                explosion.geometry.attributes.position.needsUpdate = true;
+
+                // Smoothly fade out opacity
+                explosion.material.opacity -= 0.015;
+                return true; // Keep in array
+            });
+
+            // If playback is finished and there's no explosion, stop the loop.
+            // For 3D, we keep the loop running for camera controls.
+            if (currentFrameIndex >= trajectoryData.length && state.activeExplosions.length === 0 && !is3D) {
+                cancelAnimationFrame(state.animationFrameId);
+                state.animationFrameId = null;
+                
+                // Final UI updates for 2D mode
+                setUIState('complete');
+                updateSummary(simulation);
+                updateTable(trajectoryData);
+            } else if (is3D) {
+                three.controls.update(); // Keep controls interactive
+            }
+        }
+
+        // Populate charts with full data at the start for a static line
+        updateCharts(trajectoryData, true);
+        if (!is3D) {
+            // For 2D, clear the trajectory line so we can animate it point by point
+            state.charts.trajectory.data.datasets[0].data = [];
+            state.charts.trajectory.update('none');
         }
 
         animationLoop();
+    }
+
+    /**
+     * Calculates the terrain height at a given world position.
+     * This function must match the terrain generation logic in init3DScene.
+     * @param {number} x - The world x-coordinate.
+     * @param {number} z - The world z-coordinate.
+     * @returns {number} The terrain height (y-coordinate) at that point.
+     */
+    function getTerrainHeight(x, z) {
+        const height = 1500 * (Math.sin(x / 5000) * Math.cos(z / 5000));
+        return height - 500; // Matches the ground's y-position offset
     }
 
     function getAndValidateFormParams(form) {
@@ -879,10 +919,20 @@ document.addEventListener('DOMContentLoaded', () => {
             cancelAnimationFrame(state.animationFrameId);
             state.animationFrameId = null;
         }
+        state.activeExplosions = [];
         state.simulationData = null;
         if (hardReset) state.target = null;
 
-        // Clear animation canvas
+        // Reset canvases
+        DOMElements.trajectoryChartCanvas.style.display = 'block';
+        DOMElements.threeCanvas.style.display = 'none';
+        if (three.renderer) {
+            three.renderer.dispose();
+            three.renderer = null;
+            if (three.controls) three.controls.dispose();
+            DOMElements.threeCanvas.innerHTML = '';
+        }
+
         DOMElements.animationCtx.clearRect(0, 0, DOMElements.animationCanvas.width, DOMElements.animationCanvas.height);
         
         // Reset rocket live readouts
@@ -1003,9 +1053,8 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         // Sync animation canvas size with chart canvas
-        const chartCanvas = document.getElementById('trajectory-chart');
-        DOMElements.animationCanvas.width = chartCanvas.clientWidth;
-        DOMElements.animationCanvas.height = chartCanvas.clientHeight;
+        DOMElements.animationCanvas.width = DOMElements.trajectoryChartCanvas.clientWidth;
+        DOMElements.animationCanvas.height = DOMElements.trajectoryChartCanvas.clientHeight;
         DOMElements.animationCanvas.style.position = 'absolute';
         DOMElements.animationCanvas.style.pointerEvents = 'none';
         if (state.target) drawTarget();
@@ -1142,6 +1191,311 @@ document.addEventListener('DOMContentLoaded', () => {
             const ctx = document.getElementById(canvasId).getContext('2d');
             state.charts[id] = new Chart(ctx, config);
         }
+    }
+
+    function init3DScene() {
+        const canvas = DOMElements.threeCanvas;
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+
+        // Scene
+        three.scene = new THREE.Scene();
+        three.scene.background = new THREE.Color(state.isDarkMode ? 0x0f1420 : 0xeef3f8);
+
+        // Camera
+        three.camera = new THREE.PerspectiveCamera(60, width / height, 1, 1000000);
+        three.camera.position.set(-2000, 2000, 5000); // Start behind and above the origin
+        three.camera.lookAt(0, 0, 0); // Look at the artillery station
+
+        // Controls
+        three.controls = new OrbitControls(three.camera, canvas);
+        three.controls.target.set(0, 0, 0); // Set initial target to the origin
+        three.controls.enableDamping = true; // for smooth camera motion
+        three.controls.dampingFactor = 0.05;
+
+        // Renderer
+        three.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        three.renderer.setSize(width, height);
+        three.renderer.setPixelRatio(window.devicePixelRatio);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        three.scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(-1, 1, 1);
+        three.scene.add(directionalLight);
+
+        // Terrain
+        const groundSize = 60000;
+        const segments = 100;
+        const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize, segments, segments);
+        const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22, side: THREE.DoubleSide });
+        three.ground = new THREE.Mesh(groundGeometry, groundMaterial);
+
+        // Generate Hills
+        const vertices = groundGeometry.attributes.position;
+        for (let i = 0; i < vertices.count; i++) {
+            const x = vertices.getX(i);
+            const y = vertices.getY(i);
+            const height = 1500 * (Math.sin(x / 5000) * Math.cos(y / 5000));
+            vertices.setZ(i, height); // Displace the Z vertex (which becomes Y after rotation)
+        }
+        groundGeometry.computeVertexNormals(); // Recalculate normals for correct lighting
+
+        three.ground.rotation.x = -Math.PI / 2;
+        // We shift the ground down slightly so the projectile starts just above the average ground level
+        three.ground.position.y = -500;
+        three.scene.add(three.ground);
+
+        // Add simple landmarks to make the terrain easier to read at a glance.
+        three.scenery = new THREE.Group();
+        three.scene.add(three.scenery);
+
+        const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x2f7d4a, roughness: 0.9 });
+        const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x765033, roughness: 1 });
+        const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xd9b38c, roughness: 0.85 });
+        const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x9b3d32, roughness: 0.8 });
+        const targetMaterial = new THREE.MeshStandardMaterial({ color: 0xf2d14b, roughness: 0.7 });
+        const targetRingMaterial = new THREE.MeshStandardMaterial({ color: 0xc83e3e, roughness: 0.7 });
+
+        const addForest = (candidateCount = 1800) => {
+            const placements = [];
+            let seed = 42817;
+            const random = () => {
+                seed = (seed * 1664525 + 1013904223) >>> 0;
+                return seed / 4294967296;
+            };
+
+            for (let i = 0; i < candidateCount; i++) {
+                const x = THREE.MathUtils.randFloat(-24000, 24000);
+                const z = THREE.MathUtils.randFloat(-7000, 7000);
+                const clusterShape = 0.5 + 0.5 * Math.sin(x / 3600 + Math.sin(z / 2800)) * Math.cos(z / 3000);
+                const density = 0.08 + clusterShape * 0.78;
+
+                if (random() > density) continue;
+
+                placements.push({
+                    x,
+                    z,
+                    scale: THREE.MathUtils.randFloat(0.7, 1.3),
+                    rotation: random() * Math.PI * 2,
+                });
+            }
+
+            const trunkGeometry = new THREE.CylinderGeometry(24, 32, 180, 8);
+            const crownGeometry = new THREE.ConeGeometry(125, 300, 8);
+            const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, placements.length);
+            const crowns = new THREE.InstancedMesh(crownGeometry, foliageMaterial, placements.length);
+            const dummy = new THREE.Object3D();
+
+            placements.forEach(({ x, z, scale, rotation }, index) => {
+                const terrainY = getTerrainHeight(x, z);
+                dummy.scale.setScalar(scale);
+                dummy.rotation.set(0, rotation, 0);
+
+                dummy.position.set(x, terrainY + 90 * scale, z);
+                dummy.updateMatrix();
+                trunks.setMatrixAt(index, dummy.matrix);
+
+                dummy.position.set(x, terrainY + 290 * scale, z);
+                dummy.updateMatrix();
+                crowns.setMatrixAt(index, dummy.matrix);
+            });
+
+            trunks.instanceMatrix.needsUpdate = true;
+            crowns.instanceMatrix.needsUpdate = true;
+            trunks.computeBoundingSphere();
+            crowns.computeBoundingSphere();
+            three.scenery.add(trunks, crowns);
+        };
+
+        const addHouse = (x, z, scale = 1) => {
+            const house = new THREE.Group();
+            const walls = new THREE.Mesh(new THREE.BoxGeometry(420, 260, 360), wallMaterial);
+            walls.position.y = 130;
+            house.add(walls);
+
+            const roof = new THREE.Mesh(new THREE.ConeGeometry(310, 230, 4), roofMaterial);
+            roof.rotation.y = Math.PI / 4;
+            roof.position.y = 375;
+            house.add(roof);
+
+            house.position.set(x, getTerrainHeight(x, z), z);
+            house.scale.setScalar(scale);
+            three.scenery.add(house);
+        };
+
+        const addTarget = (x, z) => {
+            const target = new THREE.Group();
+            const pole = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 520, 8), trunkMaterial);
+            pole.position.y = 260;
+            target.add(pole);
+
+            const board = new THREE.Mesh(new THREE.CylinderGeometry(170, 170, 24, 32), targetMaterial);
+            board.rotation.x = Math.PI / 2;
+            board.position.y = 430;
+            target.add(board);
+
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(90, 18, 8, 32), targetRingMaterial);
+            ring.position.y = 430;
+            target.add(ring);
+
+            target.position.set(x, getTerrainHeight(x, z), z);
+            three.scenery.add(target);
+        };
+
+        addForest(1800);
+
+        // Small settlements sit off the main flight corridor.
+        [
+            [6200, 1500, 1], [6750, 1650, 0.85], [6900, 1050, 0.75],
+            [7500, 1350, 0.9], [7200, 2050, 0.72],
+            [15400, -1200, 0.85], [15900, -1000, 0.72], [16100, -1550, 0.8],
+            [16600, -1250, 0.68], [-10800, -1700, 0.9], [-10200, -1450, 0.72],
+            [-9800, -1950, 0.78]
+        ].forEach(([x, z, scale]) => addHouse(x, z, scale));
+
+        addTarget(12000, 0);
+        addTarget(24500, 1800);
+        addTarget(-16500, -1200);
+
+        // Projectile
+        const projectileGeometry = new THREE.SphereGeometry(150, 16, 16);
+        const projectileMaterial = new THREE.MeshStandardMaterial({ color: 0xff6347 });
+        three.projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+        three.projectile.visible = true; // Ensure it's visible on new runs
+        three.scene.add(three.projectile);
+        
+        // Artillery Model (Field Gun Style)
+        const artillery = new THREE.Group();
+
+        // Materials
+        const greenMat = new THREE.MeshStandardMaterial({ color: 0x3b4d28, roughness: 0.7 });
+        const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
+        const metalMat = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.6, roughness: 0.3 });
+
+        // 1. Base / Carriage (Sloped trail legs)
+        const baseGeom = new THREE.BoxGeometry(0.6, 0.3, 2.0);
+        const base = new THREE.Mesh(baseGeom, greenMat);
+        base.position.set(0, 0.4, 0.5); // Extended backward along Z-axis
+        artillery.add(base);
+
+        // 2. Wheels (Z-axis alignment fix)
+        const wheelGeom = new THREE.CylinderGeometry(0.6, 0.6, 0.2, 24);
+        wheelGeom.rotateZ(Math.PI / 2); // Rotated around Z so flat faces point out left/right
+
+        const leftWheel = new THREE.Mesh(wheelGeom, darkMat);
+        leftWheel.position.set(-0.5, 0.6, 0);
+        artillery.add(leftWheel);
+
+        const rightWheel = new THREE.Mesh(wheelGeom, darkMat);
+        rightWheel.position.set(0.5, 0.6, 0);
+        artillery.add(rightWheel);
+
+        // 3. Axle
+        const axleGeom = new THREE.CylinderGeometry(0.08, 0.08, 1.2, 8);
+        axleGeom.rotateZ(Math.PI / 2); 
+        const axle = new THREE.Mesh(axleGeom, metalMat);
+        axle.position.set(0, 0.6, 0);
+        artillery.add(axle);
+
+        // 4. Barrel Pivot (Placed directly on the axle line)
+        const barrelPivot = new THREE.Group();
+        barrelPivot.position.set(0, 0.7, 0); 
+        artillery.add(barrelPivot);
+
+        // 5. Barrel (Tapered and rotated to point FORWARD along negative Z-axis)
+        // Top radius: 0.1, Bottom radius: 0.18, Length: 2.2
+        const barrelGeom = new THREE.CylinderGeometry(0.1, 0.18, 2.2, 16);
+        barrelGeom.rotateX(Math.PI / 2); // Crucial: Rotates the vertical cylinder to point along the Z-axis
+        const barrel = new THREE.Mesh(barrelGeom, metalMat);
+
+        // Offset the barrel mesh forward so it pivots near the breech (back end)
+        barrel.position.set(0, 0, -0.8); 
+        barrelPivot.add(barrel);
+
+        // Optional: Give it a slight upward firing angle default (e.g., 15 degrees)
+        barrelPivot.rotation.x = -Math.PI / 12; 
+
+        // Scale and position the entire model
+        artillery.scale.set(250, 250, 250);
+        artillery.position.set(0, -250, 0); 
+        three.scene.add(artillery);
+
+        // Trajectory Line
+        const lineMaterial = new THREE.LineBasicMaterial({ color: 0x2155cd });
+        const lineGeometry = new THREE.BufferGeometry();
+        three.line = new THREE.Line(lineGeometry, lineMaterial);
+        three.scene.add(three.line);
+    }
+
+    function update3DScene(frameData, points) {
+        if (!three.renderer) return;
+
+        // Update projectile position
+        three.projectile.position.set(frameData.x, frameData.y, 0);
+
+        // Smoothly move the camera's target to follow the projectile
+        const targetPosition = new THREE.Vector3(frameData.x, frameData.y, 0);
+        three.controls.target.lerp(targetPosition, 0.1);
+        three.controls.update();
+
+        // Update trajectory line
+        three.line.geometry.setFromPoints(points);
+
+        // Render
+        three.renderer.render(three.scene, three.camera);
+    }
+
+    /**
+     * Creates a particle-based explosion effect at a given position.
+     * @param {number} impactX - The world x-coordinate for the explosion.
+     * @param {number} impactY - The world y-coordinate for the explosion.
+     * @param {number} impactZ - The world z-coordinate for the explosion.
+     * @returns {object} A reference to the created particle system and its properties.
+     */
+    function createBlast(impactX, impactY, impactZ) {
+        if (!three.scene) return;
+    
+        const particleCount = 1000;
+        const positions = new Float32Array(particleCount * 3);
+        const velocities = [];
+    
+        // All particles spawn at the exact point of impact
+        for (let i = 0; i < particleCount; i++) {
+            positions[i * 3] = impactX;
+            positions[i * 3 + 1] = impactY;
+            positions[i * 3 + 2] = impactZ;
+    
+            // Spherical blast calculation direction vectors
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos((Math.random() * 2) - 1);
+            const speed = 50 + Math.random() * 150; // Random force dispersion
+    
+            velocities.push({
+                x: Math.sin(phi) * Math.cos(theta) * speed,
+                y: Math.sin(phi) * Math.sin(theta) * speed,
+                z: Math.cos(phi) * speed
+            });
+        }
+    
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
+        const material = new THREE.PointsMaterial({
+            color: 0xff5500, // Fiery orange blast
+            size: 35,
+            transparent: true,
+            opacity: 1.0,
+            blending: THREE.AdditiveBlending, // Glow effect
+            depthWrite: false,
+        });
+    
+        const particleSystem = new THREE.Points(geometry, material);
+        three.scene.add(particleSystem);
+    
+        // Return reference along with its unique speed parameters for animation
+        return { mesh: particleSystem, geometry, material, velocities, count: particleCount };
     }
 
     function drawTarget() {

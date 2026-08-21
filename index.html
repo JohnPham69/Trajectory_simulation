@@ -1,13 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <meta
-    name="description"
-    content="Interactive projectile and variable-mass rocket trajectory simulator."
-  />
+  <meta name="description" content="Interactive projectile and variable-mass rocket trajectory simulator." />
 
   <title>Flight Trajectory Simulator</title>
 
@@ -21,8 +19,18 @@
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
 
+  <!-- Import Map for Three.js modules -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js",
+        "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/"
+      }
+    }
+  </script>
+
   <!-- Main JavaScript -->
-  <script src="script.js" defer></script>
+  <script src="script.js" type="module"></script>
 </head>
 
 <body>
@@ -39,13 +47,8 @@
         </p>
       </div>
 
-      <button
-        id="theme-toggle"
-        class="secondary-button"
-        type="button"
-        aria-label="Toggle dark mode"
-        aria-pressed="false"
-      >
+      <button id="theme-toggle" class="secondary-button" type="button" aria-label="Toggle dark mode"
+        aria-pressed="false">
         Dark mode
       </button>
     </div>
@@ -65,27 +68,13 @@
 
       <!-- Simulation mode tabs -->
       <div class="simulation-tabs" role="tablist" aria-label="Simulation type">
-        <button
-          id="projectile-tab"
-          class="tab-button active"
-          type="button"
-          role="tab"
-          aria-selected="true"
-          aria-controls="projectile-panel"
-          data-simulation="projectile"
-        >
+        <button id="projectile-tab" class="tab-button active" type="button" role="tab" aria-selected="true"
+          aria-controls="projectile-panel" data-simulation="projectile">
           Projectile
         </button>
 
-        <button
-          id="rocket-tab"
-          class="tab-button"
-          type="button"
-          role="tab"
-          aria-selected="false"
-          aria-controls="rocket-panel"
-          data-simulation="rocket"
-        >
+        <button id="rocket-tab" class="tab-button" type="button" role="tab" aria-selected="false"
+          aria-controls="rocket-panel" data-simulation="rocket">
           V-2 Rocket
         </button>
       </div>
@@ -93,12 +82,7 @@
       <!-- =======================================================
            PROJECTILE INPUTS
            ======================================================= -->
-      <section
-        id="projectile-panel"
-        class="parameter-panel"
-        role="tabpanel"
-        aria-labelledby="projectile-tab"
-      >
+      <section id="projectile-panel" class="parameter-panel" role="tabpanel" aria-labelledby="projectile-tab">
         <form id="projectile-form" novalidate>
           <div class="input-grid">
             <div class="input-group full-width">
@@ -113,16 +97,8 @@
             <div class="input-group">
               <label for="projectile-angle">Launch Angle</label>
               <div class="input-with-unit">
-                <input
-                  id="projectile-angle"
-                  name="launchAngle"
-                  type="number"
-                  value="50"
-                  min="0"
-                  max="90"
-                  step="0.1"
-                  required
-                />
+                <input id="projectile-angle" name="launchAngle" type="number" value="50" min="0" max="90" step="0.1"
+                  required />
                 <span>°</span>
               </div>
             </div>
@@ -130,16 +106,8 @@
             <div class="input-group">
               <label for="projectile-velocity">Launch Power</label>
               <div class="input-with-unit">
-                <input
-                  id="projectile-velocity"
-                  name="initialVelocity"
-                  type="number"
-                  value="827"
-                  min="1"
-                  max="5000"
-                  step="1"
-                  required
-                />
+                <input id="projectile-velocity" name="initialVelocity" type="number" value="827" min="1" max="5000"
+                  step="1" required />
                 <span>m/s</span>
               </div>
             </div>
@@ -153,48 +121,24 @@
                 <div class="input-group">
                   <label for="projectile-mass">Mass</label>
                   <div class="input-with-unit">
-                    <input
-                      id="projectile-mass"
-                      name="mass"
-                      type="number"
-                      value="48"
-                      min="0.01"
-                      max="100000"
-                      step="0.1"
-                      required
-                    />
+                    <input id="projectile-mass" name="mass" type="number" value="48" min="0.01" max="100000" step="0.1"
+                      required />
                     <span>kg</span>
                   </div>
                 </div>
                 <div class="input-group">
                   <label for="projectile-drag-coefficient">Drag Coeff.</label>
                   <div class="input-with-unit">
-                    <input
-                      id="projectile-drag-coefficient"
-                      name="dragCoefficient"
-                      type="number"
-                      value="0.3"
-                      min="0"
-                      max="5"
-                      step="0.01"
-                      required
-                    />
+                    <input id="projectile-drag-coefficient" name="dragCoefficient" type="number" value="0.3" min="0"
+                      max="5" step="0.01" required />
                     <span>C<sub>d</sub></span>
                   </div>
                 </div>
                 <div class="input-group">
                   <label for="projectile-reference-area">Ref. Area</label>
                   <div class="input-with-unit">
-                    <input
-                      id="projectile-reference-area"
-                      name="referenceArea"
-                      type="number"
-                      value="0.018"
-                      min="0.000001"
-                      max="100"
-                      step="0.001"
-                      required
-                    />
+                    <input id="projectile-reference-area" name="referenceArea" type="number" value="0.018"
+                      min="0.000001" max="100" step="0.001" required />
                     <span>m²</span>
                   </div>
                 </div>
@@ -208,32 +152,16 @@
               <div class="input-group">
                 <label for="projectile-gravity">Gravity</label>
                 <div class="input-with-unit">
-                  <input
-                    id="projectile-gravity"
-                    name="gravity"
-                    type="number"
-                    value="9.81"
-                    min="0.01"
-                    max="50"
-                    step="0.01"
-                    required
-                  />
+                  <input id="projectile-gravity" name="gravity" type="number" value="9.81" min="0.01" max="50"
+                    step="0.01" required />
                   <span>m/s²</span>
                 </div>
               </div>
               <div class="input-group">
                 <label for="projectile-air-density">Air density</label>
                 <div class="input-with-unit">
-                  <input
-                    id="projectile-air-density"
-                    name="airDensity"
-                    type="number"
-                    value="1.225"
-                    min="0"
-                    max="5"
-                    step="0.001"
-                    required
-                  />
+                  <input id="projectile-air-density" name="airDensity" type="number" value="1.225" min="0" max="5"
+                    step="0.001" required />
                   <span>kg/m³</span>
                 </div>
               </div>
@@ -241,16 +169,8 @@
               <div class="input-group">
                 <label for="projectile-time-step">Time step</label>
                 <div class="input-with-unit">
-                  <input
-                    id="projectile-time-step"
-                    name="timeStep"
-                    type="number"
-                    value="0.1"
-                    min="0.001"
-                    max="1"
-                    step="0.001"
-                    required
-                  />
+                  <input id="projectile-time-step" name="timeStep" type="number" value="0.1" min="0.001" max="1"
+                    step="0.001" required />
                   <span>s</span>
                 </div>
               </div>
@@ -262,13 +182,7 @@
       <!-- =======================================================
            ROCKET INPUTS
            ======================================================= -->
-      <section
-        id="rocket-panel"
-        class="parameter-panel"
-        role="tabpanel"
-        aria-labelledby="rocket-tab"
-        hidden
-      >
+      <section id="rocket-panel" class="parameter-panel" role="tabpanel" aria-labelledby="rocket-tab" hidden>
         <form id="rocket-form" novalidate>
           <div class="input-grid">
             <div class="input-group full-width">
@@ -294,7 +208,8 @@
             <div class="input-group">
               <label for="rocket-start-angle">Initial flight angle</label>
               <div class="input-with-unit">
-                <input id="rocket-start-angle" name="startAngle" type="number" value="90" min="45" max="90" step="0.1" required />
+                <input id="rocket-start-angle" name="startAngle" type="number" value="90" min="45" max="90" step="0.1"
+                  required />
                 <span>°</span>
               </div>
             </div>
@@ -316,7 +231,8 @@
                 <label for="rocket-power">Engine power</label>
                 <output id="rocket-power-output" for="rocket-power">100%</output>
               </div>
-              <input id="rocket-power" class="power-slider" name="powerPercent" type="range" min="70" max="120" value="100" step="1" />
+              <input id="rocket-power" class="power-slider" name="powerPercent" type="range" min="70" max="120"
+                value="100" step="1" />
               <div class="range-scale"><span>70%</span><span>Historical thrust</span><span>120%</span></div>
             </div>
           </div>
@@ -332,16 +248,46 @@
             <fieldset>
               <legend class="visually-hidden">Advanced V-2 parameters</legend>
               <div class="input-grid">
-                <div class="input-group"><label for="rocket-initial-mass">Initial mass</label><div class="input-with-unit"><input id="rocket-initial-mass" name="initialMass" type="number" value="12500" min="1" max="10000000" step="1" required /><span>kg</span></div></div>
-                <div class="input-group"><label for="rocket-dry-mass">Dry mass</label><div class="input-with-unit"><input id="rocket-dry-mass" name="endMass" type="number" value="3780" min="1" max="10000000" step="1" required /><span>kg</span></div></div>
-                <div class="input-group"><label for="rocket-burn-time">Burn time</label><div class="input-with-unit"><input id="rocket-burn-time" name="burnTime" type="number" value="65" min="0.1" max="10000" step="0.1" required /><span>s</span></div></div>
-                <div class="input-group"><label for="rocket-thrust">Thrust</label><div class="input-with-unit"><input id="rocket-thrust" name="thrust" type="number" value="245000" min="0" max="1000000000" step="100" required /><span>N</span></div></div>
-                <div class="input-group"><label for="rocket-frontal-area">Frontal area</label><div class="input-with-unit"><input id="rocket-frontal-area" name="frontalArea" type="number" value="2.14" min="0.0001" max="10000" step="0.01" required /><span>m²</span></div></div>
-                <div class="input-group"><label for="rocket-end-angle">Final pitch angle</label><div class="input-with-unit"><input id="rocket-end-angle" name="endAngle" type="number" value="45" min="0" max="90" step="0.1" required /><span>°</span></div></div>
-                <div class="input-group"><label for="rocket-pitch-start">Pitch begins</label><div class="input-with-unit"><input id="rocket-pitch-start" name="pitchStart" type="number" value="5" min="0" max="10000" step="0.1" required /><span>s</span></div></div>
-                <div class="input-group"><label for="rocket-pitch-end">Pitch ends</label><div class="input-with-unit"><input id="rocket-pitch-end" name="pitchEnd" type="number" value="45" min="0" max="10000" step="0.1" required /><span>s</span></div></div>
-                <div class="input-group"><label for="rocket-time-step">Time step</label><div class="input-with-unit"><input id="rocket-time-step" name="timeStep" type="number" value="0.05" min="0.001" max="1" step="0.001" required /><span>s</span></div></div>
-                <div class="input-group"><label for="rocket-max-time">Maximum time</label><div class="input-with-unit"><input id="rocket-max-time" name="maxTime" type="number" value="1000" min="1" max="100000" step="1" required /><span>s</span></div></div>
+                <div class="input-group"><label for="rocket-initial-mass">Initial mass</label>
+                  <div class="input-with-unit"><input id="rocket-initial-mass" name="initialMass" type="number"
+                      value="12500" min="1" max="10000000" step="1" required /><span>kg</span></div>
+                </div>
+                <div class="input-group"><label for="rocket-dry-mass">Dry mass</label>
+                  <div class="input-with-unit"><input id="rocket-dry-mass" name="endMass" type="number" value="3780"
+                      min="1" max="10000000" step="1" required /><span>kg</span></div>
+                </div>
+                <div class="input-group"><label for="rocket-burn-time">Burn time</label>
+                  <div class="input-with-unit"><input id="rocket-burn-time" name="burnTime" type="number" value="65"
+                      min="0.1" max="10000" step="0.1" required /><span>s</span></div>
+                </div>
+                <div class="input-group"><label for="rocket-thrust">Thrust</label>
+                  <div class="input-with-unit"><input id="rocket-thrust" name="thrust" type="number" value="245000"
+                      min="0" max="1000000000" step="100" required /><span>N</span></div>
+                </div>
+                <div class="input-group"><label for="rocket-frontal-area">Frontal area</label>
+                  <div class="input-with-unit"><input id="rocket-frontal-area" name="frontalArea" type="number"
+                      value="2.14" min="0.0001" max="10000" step="0.01" required /><span>m²</span></div>
+                </div>
+                <div class="input-group"><label for="rocket-end-angle">Final pitch angle</label>
+                  <div class="input-with-unit"><input id="rocket-end-angle" name="endAngle" type="number" value="45"
+                      min="0" max="90" step="0.1" required /><span>°</span></div>
+                </div>
+                <div class="input-group"><label for="rocket-pitch-start">Pitch begins</label>
+                  <div class="input-with-unit"><input id="rocket-pitch-start" name="pitchStart" type="number" value="5"
+                      min="0" max="10000" step="0.1" required /><span>s</span></div>
+                </div>
+                <div class="input-group"><label for="rocket-pitch-end">Pitch ends</label>
+                  <div class="input-with-unit"><input id="rocket-pitch-end" name="pitchEnd" type="number" value="45"
+                      min="0" max="10000" step="0.1" required /><span>s</span></div>
+                </div>
+                <div class="input-group"><label for="rocket-time-step">Time step</label>
+                  <div class="input-with-unit"><input id="rocket-time-step" name="timeStep" type="number" value="0.05"
+                      min="0.001" max="1" step="0.001" required /><span>s</span></div>
+                </div>
+                <div class="input-group"><label for="rocket-max-time">Maximum time</label>
+                  <div class="input-with-unit"><input id="rocket-max-time" name="maxTime" type="number" value="1000"
+                      min="1" max="100000" step="1" required /><span>s</span></div>
+                </div>
               </div>
             </fieldset>
           </details>
@@ -427,19 +373,11 @@
             <p>Horizontal distance against altitude.</p>
           </div>
 
-          <button
-            class="chart-reset-button secondary-button"
-            type="button"
-            data-chart="trajectory"
-          >
+          <button class="chart-reset-button secondary-button" type="button" data-chart="trajectory">
             Reset zoom
           </button>
 
-          <button
-            id="reset-graph-button"
-            class="chart-reset-button secondary-button"
-            type="button"
-          >
+          <button id="reset-graph-button" class="chart-reset-button secondary-button" type="button">
             Reset Graph
           </button>
         </div>
@@ -448,11 +386,9 @@
           <!-- Canvas for the animated projectile -->
           <canvas id="animation-canvas"></canvas>
           <!-- Canvas for the trajectory line -->
-          <canvas
-            id="trajectory-chart"
-            role="img"
-            aria-label="Chart showing horizontal distance against altitude"
-          ></canvas>
+          <canvas id="three-canvas" style="display: none;"></canvas>
+          <canvas id="trajectory-chart" role="img"
+            aria-label="Chart showing horizontal distance against altitude"></canvas>
 
 
         </div>
@@ -467,21 +403,13 @@
               <p>Velocity components and total speed over time.</p>
             </div>
 
-            <button
-              class="chart-reset-button secondary-button"
-              type="button"
-              data-chart="velocity"
-            >
+            <button class="chart-reset-button secondary-button" type="button" data-chart="velocity">
               Reset zoom
             </button>
           </div>
 
           <div class="chart-container">
-            <canvas
-              id="velocity-chart"
-              role="img"
-              aria-label="Chart showing velocity over time"
-            ></canvas>
+            <canvas id="velocity-chart" role="img" aria-label="Chart showing velocity over time"></canvas>
           </div>
         </section>
 
@@ -492,21 +420,13 @@
               <p>Altitude throughout the flight.</p>
             </div>
 
-            <button
-              class="chart-reset-button secondary-button"
-              type="button"
-              data-chart="altitude"
-            >
+            <button class="chart-reset-button secondary-button" type="button" data-chart="altitude">
               Reset zoom
             </button>
           </div>
 
           <div class="chart-container">
-            <canvas
-              id="altitude-chart"
-              role="img"
-              aria-label="Chart showing altitude over time"
-            ></canvas>
+            <canvas id="altitude-chart" role="img" aria-label="Chart showing altitude over time"></canvas>
           </div>
         </section>
 
@@ -517,21 +437,13 @@
               <p>Vehicle mass before, during, and after engine burn.</p>
             </div>
 
-            <button
-              class="chart-reset-button secondary-button"
-              type="button"
-              data-chart="mass"
-            >
+            <button class="chart-reset-button secondary-button" type="button" data-chart="mass">
               Reset zoom
             </button>
           </div>
 
           <div class="chart-container">
-            <canvas
-              id="mass-chart"
-              role="img"
-              aria-label="Chart showing rocket mass over time"
-            ></canvas>
+            <canvas id="mass-chart" role="img" aria-label="Chart showing rocket mass over time"></canvas>
           </div>
         </section>
 
@@ -542,21 +454,14 @@
               <p>Aerodynamic conditions throughout the flight.</p>
             </div>
 
-            <button
-              class="chart-reset-button secondary-button"
-              type="button"
-              data-chart="mach"
-            >
+            <button class="chart-reset-button secondary-button" type="button" data-chart="mach">
               Reset zoom
             </button>
           </div>
 
           <div class="chart-container">
-            <canvas
-              id="mach-chart"
-              role="img"
-              aria-label="Chart showing Mach number and drag coefficient over time"
-            ></canvas>
+            <canvas id="mach-chart" role="img"
+              aria-label="Chart showing Mach number and drag coefficient over time"></canvas>
           </div>
         </section>
       </div>
@@ -648,4 +553,5 @@
     </div>
   </noscript>
 </body>
+
 </html>

@@ -229,13 +229,6 @@ h3 {
   gap: 8px;
 }
 
-.input-group label {
-  font-size: 16px;
-  font-weight: 600;
-  color: #ffffff;
-}
-
-
 /* Container */
 .select-wrapper {
   position: relative;
@@ -408,6 +401,7 @@ legend {
 .input-group label {
   font-size: 0.88rem;
   font-weight: 700;
+  color: var(--text);
 }
 
 .input-with-unit {
@@ -627,6 +621,7 @@ button:disabled {
 canvas {
   width: 100% !important;
   height: 100% !important;
+  display: block;
 }
 
 .data-card {
