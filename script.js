@@ -1,6 +1,6 @@
 /* =========================================================
    FLIGHT TRAJECTORY SIMULATOR
-   Application and Simulation Logic
+   Application and Simulation Logic flow
    ========================================================= */
 
 import * as THREE from 'three';
