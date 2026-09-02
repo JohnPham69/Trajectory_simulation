@@ -10,7 +10,7 @@
   <title>Flight Trajectory Simulator</title>
 
   <!-- Main stylesheet -->
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=20260902-1" />
 
   <!-- Chart.js for interactive graphs -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
@@ -30,7 +30,7 @@
   </script>
 
   <!-- Main JavaScript -->
-  <script src="script.js" type="module"></script>
+  <script src="script.js?v=20260902-1" type="module"></script>
 </head>
 
 <body>
@@ -58,12 +58,21 @@
     <!-- =========================================================
          SIMULATION CONTROLS
          ========================================================= -->
-    <aside class="control-panel" aria-labelledby="controls-heading">
+    <button id="mobile-controls-toggle" class="mobile-controls-toggle secondary-button" type="button"
+      aria-expanded="false" aria-controls="controls-content">
+      Configure simulation
+    </button>
+
+    <aside class="control-panel" aria-labelledby="controls-heading" aria-hidden="false">
+      <div id="controls-content" class="controls-content">
       <div class="panel-heading">
         <div>
           <p class="section-label">Configuration</p>
           <h2 id="controls-heading">Simulation Controls</h2>
         </div>
+        <button id="mobile-controls-close" class="mobile-controls-close secondary-button" type="button">
+          Close
+        </button>
       </div>
 
       <!-- Simulation mode tabs -->
@@ -327,7 +336,11 @@
           Export CSV
         </button>
       </div>
+      </div>
     </aside>
+
+    <button id="mobile-controls-backdrop" class="mobile-controls-backdrop" type="button"
+      aria-label="Close simulation controls"></button>
 
     <!-- =========================================================
          SIMULATION OUTPUT

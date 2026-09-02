@@ -210,6 +210,16 @@ h3 {
   box-shadow: var(--shadow-sm);
 }
 
+.mobile-controls-toggle,
+.mobile-controls-close,
+.mobile-controls-backdrop {
+  display: none;
+}
+
+.controls-content {
+  display: block;
+}
+
 .control-panel {
   align-self: start;
   position: sticky;
@@ -868,6 +878,113 @@ tbody tr:hover {
     padding-top: 0.9rem;
   }
 
+  .page-layout {
+    display: block;
+  }
+
+  .control-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    display: block;
+    width: min(88vw, 390px);
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
+    transform: translateX(105%);
+    transition: transform 220ms ease;
+  }
+
+  .controls-content {
+    padding-bottom: 5.8rem;
+  }
+
+  .control-actions {
+    position: sticky;
+    bottom: -0.8rem;
+    z-index: 2;
+    margin-bottom: -5rem;
+    background: var(--surface);
+    box-shadow: 0 -6px 14px rgba(23, 32, 51, 0.08);
+  }
+
+  .control-panel.mobile-controls-open {
+    transform: translateX(0);
+  }
+
+  .controls-content {
+    padding-top: 0.8rem;
+  }
+
+  .mobile-controls-close {
+    display: block;
+    min-height: 38px;
+    padding: 0.45rem 0.7rem;
+    font-size: 0.82rem;
+  }
+
+  .mobile-controls-toggle {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    left: 1rem;
+    z-index: 900;
+    display: block;
+    width: auto;
+    box-shadow: var(--shadow-md);
+  }
+
+  .mobile-controls-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    background: rgba(15, 20, 32, 0.48);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 220ms ease;
+  }
+
+  .control-panel.mobile-controls-open + .mobile-controls-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .control-panel.mobile-controls-open ~ .results-area {
+    pointer-events: none;
+  }
+
+  .control-panel[aria-hidden="true"] {
+    visibility: hidden;
+  }
+
+  .control-panel.mobile-controls-open[aria-hidden="false"] {
+    visibility: visible;
+  }
+
+  .summary-grid,
+  .chart-grid,
+  .data-card,
+  .information-card {
+    display: none;
+  }
+
+  .results-header {
+    margin-bottom: 0.7rem;
+  }
+
+  .chart-card-large {
+    margin-bottom: 0;
+  }
+
   .control-panel,
   .chart-card,
   .data-card {
@@ -876,7 +993,7 @@ tbody tr:hover {
 
   .control-panel {
     padding: 0.8rem;
-    overflow: visible;
+    overflow-y: auto;
   }
 
   .control-actions {

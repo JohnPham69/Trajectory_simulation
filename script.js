@@ -415,6 +415,10 @@ document.addEventListener('DOMContentLoaded', () => {
         projectileForm: document.getElementById('projectile-form'),
         rocketForm: document.getElementById('rocket-form'),
         runButton: document.getElementById('run-simulation'),
+        mobileControlsToggle: document.getElementById('mobile-controls-toggle'),
+        mobileControlsClose: document.getElementById('mobile-controls-close'),
+        mobileControlsBackdrop: document.getElementById('mobile-controls-backdrop'),
+        controlPanel: document.querySelector('.control-panel'),
         resetButton: document.getElementById('reset-simulation'),
         exportButton: document.getElementById('export-csv'),
         formError: document.getElementById('form-error'),
@@ -501,6 +505,7 @@ document.addEventListener('DOMContentLoaded', () => {
         applyTheme(state.isDarkMode);
         populateProjectilePresets();
         create3DViewToggle();
+        if (window.matchMedia('(max-width: 680px)').matches) closeMobileControls();
         resetUI();
         updateCharts([]); // Create empty charts on load so target can be set
     }
@@ -529,6 +534,9 @@ document.addEventListener('DOMContentLoaded', () => {
         DOMElements.projectileTab.addEventListener('click', () => switchSimulationType('projectile'));
         DOMElements.rocketTab.addEventListener('click', () => switchSimulationType('rocket'));
         DOMElements.runButton.addEventListener('click', runSimulation);
+        DOMElements.mobileControlsToggle.addEventListener('click', toggleMobileControls);
+        DOMElements.mobileControlsClose.addEventListener('click', closeMobileControls);
+        DOMElements.mobileControlsBackdrop.addEventListener('click', closeMobileControls);
         DOMElements.resetButton.addEventListener('click', resetUI);
         DOMElements.exportButton.addEventListener('click', exportToCSV);
         DOMElements.table.limit.addEventListener('change', () => updateTable(state.simulationData));
@@ -547,6 +555,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         DOMElements.summary.rocketPowerSlider.addEventListener('input', onPowerSliderChange);
         document.addEventListener('keydown', onKeyDown);
+    }
+
+    function toggleMobileControls() {
+        const isOpen = DOMElements.controlPanel.classList.toggle('mobile-controls-open');
+        DOMElements.mobileControlsToggle.setAttribute('aria-expanded', isOpen);
+        DOMElements.controlPanel.setAttribute('aria-hidden', !isOpen);
+    }
+
+    function closeMobileControls() {
+        DOMElements.controlPanel.classList.remove('mobile-controls-open');
+        DOMElements.mobileControlsToggle.setAttribute('aria-expanded', 'false');
+        DOMElements.controlPanel.setAttribute('aria-hidden', 'true');
     }
 
     function onChartClick(event) {
