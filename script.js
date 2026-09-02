@@ -37,17 +37,18 @@ const ROCKET_DISPLAY_SCALE = 0.25;
  * @param {number} params.initialElevation - Starting elevation above ground (m).
  * @returns {object} An object containing the full simulation data.
  */
-function simulateProjectileTrajectory({ initialVelocity, launchAngle, dragCoefficient, airDensity, referenceArea, mass, gravity, timeStep, initialElevation, groundHeightAtX = () => 0, windVx = 0 }) {
+function simulateProjectileTrajectory({ initialVelocity, launchAngle, dragCoefficient, airDensity, referenceArea, mass, gravity, timeStep, initialElevation, groundHeightAtX = () => 0, windVx = 0, windVy = 0, windVz = 0 }) {
     const g = gravity;
 
     // Convert launch angle to radians
     const launchAngleRad = (launchAngle * Math.PI) / 180;
 
     // Initial conditions
-    let position = { x: 0.0, y: initialElevation };
+    let position = { x: 0.0, y: initialElevation, z: 0.0 };
     let velocity = {
         vx: initialVelocity * Math.cos(launchAngleRad),
-        vy: initialVelocity * Math.sin(launchAngleRad)
+        vy: initialVelocity * Math.sin(launchAngleRad),
+        vz: 0.0
     };
 
     const data = [{
@@ -58,24 +59,29 @@ function simulateProjectileTrajectory({ initialVelocity, launchAngle, dragCoeffi
 
     while (true) {
         const relativeVx = velocity.vx - windVx;
-        const speed = Math.sqrt(relativeVx ** 2 + velocity.vy ** 2);
+        const relativeVy = velocity.vy - windVy;
+        const relativeVz = velocity.vz - windVz;
+        const relativeSpeed = Math.sqrt(relativeVx ** 2 + relativeVy ** 2 + relativeVz ** 2);
         
         // Correctly calculate drag force based on total speed
-        const dragForce = 0.5 * dragCoefficient * airDensity * referenceArea * speed ** 2;
+        const dragForce = 0.5 * dragCoefficient * airDensity * referenceArea * relativeSpeed ** 2;
         
         // Drag acceleration opposes the velocity vector
         const dragAccel = dragForce / mass;
-        const ax = speed > 1e-6 ? -dragAccel * (relativeVx / speed) : 0;
-        const ay = speed > 1e-6 ? -g - (dragAccel * (velocity.vy / speed)) : -g;
+        const ax = relativeSpeed > 1e-6 ? -dragAccel * (relativeVx / relativeSpeed) : 0;
+        const ay = relativeSpeed > 1e-6 ? -g - (dragAccel * (relativeVy / relativeSpeed)) : -g;
+        const az = relativeSpeed > 1e-6 ? -dragAccel * (relativeVz / relativeSpeed) : 0;
 
         // Update velocities using Euler integration
         velocity.vx += ax * timeStep;
         velocity.vy += ay * timeStep;
+        velocity.vz += az * timeStep;
 
         // Update positions
         position = {
             x: position.x + velocity.vx * timeStep,
-            y: position.y + velocity.vy * timeStep
+            y: position.y + velocity.vy * timeStep,
+            z: position.z + velocity.vz * timeStep
         };
 
         time += timeStep;
@@ -84,10 +90,10 @@ function simulateProjectileTrajectory({ initialVelocity, launchAngle, dragCoeffi
             time,
             ...position,
             ...velocity,
-            speed: Math.sqrt(velocity.vx ** 2 + velocity.vy ** 2)
+            speed: Math.sqrt(velocity.vx ** 2 + velocity.vy ** 2 + velocity.vz ** 2)
         });
 
-        if (time > timeStep && velocity.vy <= 0 && position.y < groundHeightAtX(position.x)) {
+        if (time > timeStep && velocity.vy <= 0 && position.y < groundHeightAtX(position.x, position.z)) {
             break;
         }
     }
@@ -246,18 +252,26 @@ function getPitchAngle(time, pitchStart, pitchEnd, startAngle, endAngle) {
  * @param {function} [onProgress] - Optional callback for progress updates.
  * @returns {object} An object containing arrays for times, positions, velocities, and masses.
  */ 
-function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thrust, startAngle, endAngle, pitchStart, pitchEnd, timeStep, maxTime, initialElevation, groundHeightAtX = () => 0, stopAtGround = true, windVx = 0 }) {
+function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thrust, powerPercent = 100, startAngle, endAngle, pitchStart, pitchEnd, timeStep, maxTime, initialElevation, groundHeightAtX = () => 0, stopAtGround = true, windVx = 0, windVy = 0, windVz = 0 }) {
     const dt = timeStep;
     // Initial Conditions
-    let position = { x: 0.0, y: initialElevation };
-    let velocity = { vx: 0.0, vy: 0.0 };
+    let position = { x: 0.0, y: initialElevation, z: 0.0 };
+    let velocity = { vx: 0.0, vy: 0.0, vz: 0.0 };
     let mass = initialMass;
     const massFlowRate = (initialMass - endMass) / burnTime;
     let time = 0.0;
 
     // Data storage
     const data = [{
-        time, ...position, ...velocity, speed: 0, mass, mach: 0, cd: V2_DRAG_COEFFICIENTS[0]
+        time,
+        ...position,
+        ...velocity,
+        speed: 0,
+        mass,
+        mach: 0,
+        cd: V2_DRAG_COEFFICIENTS[0],
+        pitchAngle: startAngle,
+        flightAngle: startAngle
     }];
 
     let burnoutAltitude = -1;
@@ -266,7 +280,7 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
     while (true) {
         // Determine current state
         const inBurnPhase = time < burnTime;
-        const currentThrust = inBurnPhase ? thrust : 0.0;
+        const currentThrust = inBurnPhase ? thrust * (powerPercent / 100) : 0.0;
         if (inBurnPhase) {
             mass = Math.max(endMass, initialMass - massFlowRate * time);
         }
@@ -277,22 +291,27 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
         // --- Forces Calculation ---
 
         // Thrust Vector
-        const pitchAngleRad = (getPitchAngle(time, pitchStart, pitchEnd, startAngle, endAngle) * Math.PI) / 180;
+        const pitchAngle = getPitchAngle(time, pitchStart, pitchEnd, startAngle, endAngle);
+        const pitchAngleRad = (pitchAngle * Math.PI) / 180;
         const thrustVector = {
             x: currentThrust * Math.cos(pitchAngleRad),
-            y: currentThrust * Math.sin(pitchAngleRad)
+            y: currentThrust * Math.sin(pitchAngleRad),
+            z: 0.0
         };
 
         // Drag Vector
         const relativeVx = velocity.vx - windVx;
-        const speed = Math.sqrt(relativeVx ** 2 + velocity.vy ** 2);
-        let dragVector = { x: 0, y: 0 };
+        const relativeVy = velocity.vy - windVy;
+        const relativeVz = velocity.vz - windVz;
+        const relativeSpeed = Math.sqrt(relativeVx ** 2 + relativeVy ** 2 + relativeVz ** 2);
+        let dragVector = { x: 0, y: 0, z: 0 };
         let dragForce = 0;
-        if (speed > 1e-6) {
-            dragForce = calculateDragForce(speed, position.y, frontalArea);
+        if (relativeSpeed > 1e-6) {
+            dragForce = calculateDragForce(relativeSpeed, position.y, frontalArea);
             dragVector = {
-                x: -dragForce * (relativeVx / speed),
-                y: -dragForce * (velocity.vy / speed)
+                x: -dragForce * (relativeVx / relativeSpeed),
+                y: -dragForce * (relativeVy / relativeSpeed),
+                z: -dragForce * (relativeVz / relativeSpeed)
             };
         }
 
@@ -305,24 +324,32 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
         // Total Force and Acceleration
         const totalForce = {
             x: thrustVector.x + dragVector.x + gravityVector.x,
-            y: thrustVector.y + dragVector.y + gravityVector.y
+            y: thrustVector.y + dragVector.y + gravityVector.y,
+            z: thrustVector.z + dragVector.z
         };
         const acceleration = {
             x: totalForce.x / mass,
-            y: totalForce.y / mass
+            y: totalForce.y / mass,
+            z: totalForce.z / mass
         };
 
         // --- Euler Integration ---
         velocity.vx += acceleration.x * dt;
         velocity.vy += acceleration.y * dt;
+        velocity.vz += acceleration.z * dt;
         position.x += velocity.vx * dt;
         position.y += velocity.vy * dt;
+        position.z += velocity.vz * dt;
 
         time += dt;
 
         // --- Data Storage & Progress ---
-        const mach = calculateMachNumber(speed, position.y);
-        const cd = calculateDragCoefficient(speed, position.y);
+        const speed = Math.sqrt(velocity.vx ** 2 + velocity.vy ** 2 + velocity.vz ** 2);
+        const mach = calculateMachNumber(relativeSpeed, position.y);
+        const cd = calculateDragCoefficient(relativeSpeed, position.y);
+        const flightAngle = speed > 1e-6
+            ? THREE.MathUtils.radToDeg(Math.atan2(velocity.vy, velocity.vx))
+            : pitchAngle;
         data.push({
             time,
             ...position,
@@ -330,10 +357,12 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
             speed,
             mass,
             mach,
-            cd
+            cd,
+            pitchAngle,
+            flightAngle
         });
 
-        if (stopAtGround && time > dt && velocity.vy <= 0 && position.y < groundHeightAtX(position.x)) {
+        if (stopAtGround && time > dt && velocity.vy <= 0 && position.y < groundHeightAtX(position.x, position.z)) {
             break;
         }
         
@@ -367,7 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- DOM & 3D ELEMENTS ---
-    let three = { scene: null, camera: null, renderer: null, controls: null, projectile: null, ground: null, line: null, scenery: null, launchElevation: 0, launchOriginX: 0, worldScale: 1 };
+    let three = { scene: null, camera: null, renderer: null, controls: null, projectile: null, ground: null, line: null, scenery: null, windIndicator: null, launchElevation: 0, launchOriginX: 0, worldScale: 1 };
     const impactSound = new Audio('./sound_effect/mixkit-war-explosions-2773.wav');
 
     function playImpactSound() {
@@ -642,20 +671,19 @@ document.addEventListener('DOMContentLoaded', () => {
             params.worldOriginX = state.simulationType === 'rocket' ? -26000 : 0;
         }
 
+        const windDirectionRad = (params.windDirection * Math.PI) / 180;
+        params.windVx = params.windSpeed * Math.cos(windDirectionRad);
+        params.windVz = params.windSpeed * Math.sin(windDirectionRad);
+
         if (is3D && !isPrepared3D) {
             resetUI(false);
             state.pendingSimulationParams = params;
             DOMElements.trajectoryChartCanvas.style.display = 'none';
             DOMElements.threeCanvas.style.display = 'block';
-            params.windSpeed = Math.random() * 30;
-            params.windDirection = Math.random() * 360;
-            const windDirectionRad = params.windDirection * Math.PI / 180;
-            params.windVx = params.windSpeed * Math.cos(windDirectionRad);
-            params.windVz = params.windSpeed * Math.sin(windDirectionRad);
             params.worldScale = state.simulationType === 'rocket' ? ROCKET_DISPLAY_SCALE : 1;
             three.worldScale = params.worldScale;
             three.launchOriginX = params.worldOriginX;
-            init3DScene();
+            init3DScene(params);
             params.worldLaunchElevation = three.launchElevation;
             three.projectile.position.set(three.launchOriginX, params.worldLaunchElevation, 0);
             start3DPreview();
@@ -686,7 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (is3D) {
                     DOMElements.trajectoryChartCanvas.style.display = 'none';
                     DOMElements.threeCanvas.style.display = 'block';
-                    if (!three.renderer) init3DScene();
+                    if (!three.renderer) init3DScene(params);
                     three.renderer.render(three.scene, three.camera);
                 } else {
                     DOMElements.trajectoryChartCanvas.style.display = 'block';
@@ -694,7 +722,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 params.groundHeightAtX = is3D
-                    ? (x) => getTerrainHeight(three.launchOriginX + x * three.worldScale, 0) - params.worldLaunchElevation
+                    ? (x, z = 0) => getTerrainHeight(three.launchOriginX + x * three.worldScale, z * three.worldScale) - params.worldLaunchElevation
                     : () => 0;
                 params.stopAtGround = !(is3D && state.simulationType === 'rocket');
 
@@ -815,13 +843,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     const nextPosition = new THREE.Vector3(
                         three.launchOriginX + frameData.x * three.worldScale,
                         frameData.y * three.worldScale + worldLaunchElevation,
-                        0
+                        frameData.z * three.worldScale
                     );
                     const previousFrameData = trajectoryData[Math.max(0, currentFrameIndex - 1)];
                     const previousWorldX = three.launchOriginX + previousFrameData.x * three.worldScale;
                     const previousWorldY = previousFrameData.y * three.worldScale + worldLaunchElevation;
-                    const previousGroundHeight = getTerrainHeight(previousWorldX, 0);
-                    const nextGroundHeight = getTerrainHeight(nextPosition.x, 0);
+                    const previousWorldZ = previousFrameData.z * three.worldScale;
+                    const previousGroundHeight = getTerrainHeight(previousWorldX, previousWorldZ);
+                    const nextGroundHeight = getTerrainHeight(nextPosition.x, nextPosition.z);
                     const previousClearance = previousWorldY - previousGroundHeight;
                     const nextClearance = nextPosition.y - nextGroundHeight;
                     const crossesTerrain = currentFrameIndex > 0
@@ -830,7 +859,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         && frameData.vy <= 0;
                     const collisionPoint = frameData.time > terrainCollisionSafeTime && crossesTerrain
                         ? findTerrainCollision(
-                            new THREE.Vector3(previousWorldX, previousWorldY, 0),
+                            new THREE.Vector3(previousWorldX, previousWorldY, previousWorldZ),
                             nextPosition
                         ) || new THREE.Vector3(nextPosition.x, nextGroundHeight, 0)
                         : null;
@@ -846,7 +875,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         trajectoryPoints.push(new THREE.Vector3(
                             three.launchOriginX + visualFrameData.x * three.worldScale,
                             visualFrameData.y * three.worldScale + worldLaunchElevation,
-                            0
+                            visualFrameData.z * three.worldScale
                         ));
                     }
                     update3DScene(visualFrameData, trajectoryPoints, worldLaunchElevation, three.worldScale, three.launchOriginX);
@@ -878,8 +907,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         // Spawn a final blast at the impact point
                         const finalPos = terrainImpactPoint || new THREE.Vector3(
                             three.launchOriginX + trajectoryData[trajectoryData.length - 1].x * three.worldScale,
-                            getTerrainHeight(three.launchOriginX + trajectoryData[trajectoryData.length - 1].x * three.worldScale, 0),
-                            0
+                            getTerrainHeight(
+                                three.launchOriginX + trajectoryData[trajectoryData.length - 1].x * three.worldScale,
+                                trajectoryData[trajectoryData.length - 1].z * three.worldScale
+                            ),
+                            trajectoryData[trajectoryData.length - 1].z * three.worldScale
                         );
                         state.activeExplosions.push(createBlast(finalPos.x, finalPos.y, finalPos.z));
                     }
@@ -1120,6 +1152,7 @@ document.addEventListener('DOMContentLoaded', () => {
             three.renderer.dispose();
             three.renderer = null;
             if (three.controls) three.controls.dispose();
+            disposeWindIndicator();
             DOMElements.threeCanvas.innerHTML = '';
         }
 
@@ -1383,7 +1416,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function init3DScene() {
+    function init3DScene(params = {}) {
         const canvas = DOMElements.threeCanvas;
         const width = canvas.clientWidth;
         const height = canvas.clientHeight;
@@ -1612,7 +1645,6 @@ document.addEventListener('DOMContentLoaded', () => {
             : new THREE.SphereGeometry(150, 16, 16);
         const projectileMaterial = new THREE.MeshStandardMaterial({ color: isRocket ? 0xd6d9df : 0xff6347 });
         three.projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
-        if (isRocket) three.projectile.rotation.z = -Math.PI / 2;
         three.projectile.visible = true; // Ensure it's visible on new runs
         three.scene.add(three.projectile);
         
@@ -1685,11 +1717,57 @@ document.addEventListener('DOMContentLoaded', () => {
         snapToTerrain(artillery, three.ground);
         }
 
+        three.windIndicator = createWindIndicator(params.windSpeed ?? 0, params.windDirection ?? 0);
+        three.scene.add(three.windIndicator);
+
         // Trajectory Line
         const lineMaterial = new THREE.LineBasicMaterial({ color: 0x2155cd });
         const lineGeometry = new THREE.BufferGeometry();
         three.line = new THREE.Line(lineGeometry, lineMaterial);
         three.scene.add(three.line);
+    }
+
+    function createWindIndicator(windSpeed, windDirection) {
+        const directionRadians = THREE.MathUtils.degToRad(windDirection);
+        const direction = new THREE.Vector3(Math.cos(directionRadians), 0, Math.sin(directionRadians)).normalize();
+        const arrowLength = 700 + Math.min(windSpeed, 500) * 28;
+        const indicator = new THREE.Group();
+        const arrow = new THREE.ArrowHelper(direction, new THREE.Vector3(0, 0, 0), arrowLength, 0x23b5d3, 260, 130);
+        indicator.add(arrow);
+
+        const labelCanvas = document.createElement('canvas');
+        labelCanvas.width = 720;
+        labelCanvas.height = 150;
+        const context = labelCanvas.getContext('2d');
+        context.fillStyle = 'rgba(15, 20, 32, 0.82)';
+        context.fillRect(0, 0, labelCanvas.width, labelCanvas.height);
+        context.fillStyle = '#8de8f5';
+        context.font = 'bold 42px sans-serif';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(`Wind ${windSpeed.toFixed(1)} m/s | ${windDirection.toFixed(0)}°`, labelCanvas.width / 2, labelCanvas.height / 2);
+
+        const labelTexture = new THREE.CanvasTexture(labelCanvas);
+        const labelMaterial = new THREE.SpriteMaterial({ map: labelTexture, transparent: true, depthTest: false });
+        const label = new THREE.Sprite(labelMaterial);
+        label.position.set(0, 500, 0);
+        label.scale.set(2600, 540, 1);
+        indicator.add(label);
+        indicator.userData.resources = { labelTexture, labelMaterial };
+        indicator.position.set(three.launchOriginX, three.launchElevation + 1100, 0);
+        return indicator;
+    }
+
+    function disposeWindIndicator() {
+        if (!three.windIndicator) return;
+
+        const resources = three.windIndicator.userData.resources;
+        if (resources) {
+            resources.labelTexture.dispose();
+            resources.labelMaterial.dispose();
+        }
+        three.scene?.remove(three.windIndicator);
+        three.windIndicator = null;
     }
 
     function snapToTerrain(object, terrain) {
@@ -1731,10 +1809,30 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update projectile position
         const worldX = launchOriginX + frameData.x * worldScale;
         const worldY = frameData.y * worldScale + worldLaunchElevation;
-        three.projectile.position.set(worldX, worldY, 0);
+        const worldZ = (frameData.z ?? 0) * worldScale;
+        three.projectile.position.set(worldX, worldY, worldZ);
+
+        if (three.windIndicator) {
+            three.windIndicator.position.set(worldX, worldY + 1100, 0);
+        }
+
+        if (state.simulationType === 'rocket') {
+            const flightDirection = new THREE.Vector3(
+                frameData.vx ?? 0,
+                frameData.vy ?? 0,
+                frameData.vz ?? 0
+            );
+            if (flightDirection.lengthSq() > 1e-6) {
+                // ConeGeometry points along local +Y; align it with the full 3D velocity vector.
+                three.projectile.quaternion.setFromUnitVectors(
+                    new THREE.Vector3(0, 1, 0),
+                    flightDirection.normalize()
+                );
+            }
+        }
 
         // Smoothly move the camera's target to follow the projectile
-        const targetPosition = new THREE.Vector3(worldX, worldY, 0);
+        const targetPosition = new THREE.Vector3(worldX, worldY, worldZ);
         three.controls.target.lerp(targetPosition, 0.1);
         three.controls.update();
 
