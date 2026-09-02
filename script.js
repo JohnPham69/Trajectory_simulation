@@ -1299,6 +1299,7 @@ document.addEventListener('DOMContentLoaded', () => {
         DOMElements.animationCanvas.width = DOMElements.trajectoryChartCanvas.clientWidth;
         DOMElements.animationCanvas.height = DOMElements.trajectoryChartCanvas.clientHeight;
         DOMElements.animationCanvas.style.position = 'absolute';
+        DOMElements.animationCanvas.style.inset = '0';
         DOMElements.animationCanvas.style.pointerEvents = 'none';
         if (state.target) drawTarget();
 

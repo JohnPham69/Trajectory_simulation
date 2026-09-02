@@ -663,11 +663,11 @@ button:disabled {
 .chart-container {
   position: relative;
   width: 100%;
-  min-height: 310px;
+  height: 310px;
 }
 
 .chart-container-large {
-  min-height: 470px;
+  height: 470px;
 }
 
 .chart-grid {
@@ -1042,11 +1042,11 @@ tbody tr:hover {
   }
 
   .chart-container {
-    min-height: 260px;
+    height: 260px;
   }
 
   .chart-container-large {
-    min-height: 320px;
+    height: 320px;
   }
 
   .data-card,
