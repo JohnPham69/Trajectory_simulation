@@ -102,15 +102,6 @@
                 <span>°</span>
               </div>
             </div>
-
-            <div class="input-group">
-              <label for="projectile-velocity">Launch Power</label>
-              <div class="input-with-unit">
-                <input id="projectile-velocity" name="initialVelocity" type="number" value="827" min="1" max="5000"
-                  step="1" required />
-                <span>m/s</span>
-              </div>
-            </div>
           </div>
 
           <details class="advanced-settings">
@@ -124,6 +115,14 @@
                     <input id="projectile-mass" name="mass" type="number" value="48" min="0.01" max="100000" step="0.1"
                       required />
                     <span>kg</span>
+                  </div>
+                </div>
+                <div class="input-group">
+                  <label for="projectile-velocity">Launch Power</label>
+                  <div class="input-with-unit">
+                    <input id="projectile-velocity" name="initialVelocity" type="number" value="827" min="1" max="5000"
+                      step="1" required />
+                    <span>m/s</span>
                   </div>
                 </div>
                 <div class="input-group">
@@ -145,37 +144,40 @@
               </div>
             </fieldset>
           </details>
+          
+          <details class="advanced-settings">
+            <summary>Environment Settings</summary>
+            <fieldset>
+              <legend class="visually-hidden">Environment Parameters</legend>
+              <div class="input-grid">
+                <div class="input-group">
+                  <label for="projectile-gravity">Gravity</label>
+                  <div class="input-with-unit">
+                    <input id="projectile-gravity" name="gravity" type="number" value="9.81" min="0.01" max="50"
+                      step="0.01" required />
+                    <span>m/s²</span>
+                  </div>
+                </div>
+                <div class="input-group">
+                  <label for="projectile-air-density">Air density</label>
+                  <div class="input-with-unit">
+                    <input id="projectile-air-density" name="airDensity" type="number" value="1.225" min="0" max="5"
+                      step="0.001" required />
+                    <span>kg/m³</span>
+                  </div>
+                </div>
 
-          <fieldset>
-            <legend class="visually-hidden">Environment Parameters</legend>
-            <div class="input-grid">
-              <div class="input-group">
-                <label for="projectile-gravity">Gravity</label>
-                <div class="input-with-unit">
-                  <input id="projectile-gravity" name="gravity" type="number" value="9.81" min="0.01" max="50"
-                    step="0.01" required />
-                  <span>m/s²</span>
+                <div class="input-group">
+                  <label for="projectile-time-step">Time step</label>
+                  <div class="input-with-unit">
+                    <input id="projectile-time-step" name="timeStep" type="number" value="0.1" min="0.001" max="1"
+                      step="0.001" required />
+                    <span>s</span>
+                  </div>
                 </div>
               </div>
-              <div class="input-group">
-                <label for="projectile-air-density">Air density</label>
-                <div class="input-with-unit">
-                  <input id="projectile-air-density" name="airDensity" type="number" value="1.225" min="0" max="5"
-                    step="0.001" required />
-                  <span>kg/m³</span>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="projectile-time-step">Time step</label>
-                <div class="input-with-unit">
-                  <input id="projectile-time-step" name="timeStep" type="number" value="0.1" min="0.001" max="1"
-                    step="0.001" required />
-                  <span>s</span>
-                </div>
-              </div>
-            </div>
-          </fieldset>
+            </fieldset>
+          </details>
         </form>
       </section>
 
@@ -193,16 +195,6 @@
                   <option value="experimental">Experimental V-2</option>
                 </select>
               </div>
-            </div>
-
-            <div class="input-group full-width">
-              <label>Trajectory profile</label>
-              <div class="profile-selector" role="group" aria-label="Trajectory profile">
-                <button type="button" class="profile-button" data-profile="steep">Steep</button>
-                <button type="button" class="profile-button active" data-profile="standard">Standard</button>
-                <button type="button" class="profile-button" data-profile="longRange">Long range</button>
-              </div>
-              <input id="rocket-profile" name="rocketProfile" type="hidden" value="standard" />
             </div>
 
             <div class="input-group">

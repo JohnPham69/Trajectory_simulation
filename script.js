@@ -21,6 +21,8 @@ const PROJECTILE_PRESETS = {
     }
 };
 
+const ROCKET_DISPLAY_SCALE = 0.25;
+
 /**
  * Simulates the trajectory of a simple shell with constant mass.
  * @param {object} params - The parameters for the simulation.
@@ -32,16 +34,17 @@ const PROJECTILE_PRESETS = {
  * @param {number} params.gravity - Gravitational acceleration (m/s^2).
  * @param {number} params.mass - The mass of the shell (kg).
  * @param {number} params.timeStep - The time step for the simulation (s).
+ * @param {number} params.initialElevation - Starting elevation above ground (m).
  * @returns {object} An object containing the full simulation data.
  */
-function simulateProjectileTrajectory({ initialVelocity, launchAngle, dragCoefficient, airDensity, referenceArea, mass, gravity, timeStep }) {
+function simulateProjectileTrajectory({ initialVelocity, launchAngle, dragCoefficient, airDensity, referenceArea, mass, gravity, timeStep, initialElevation, groundHeightAtX = () => 0, windVx = 0 }) {
     const g = gravity;
 
     // Convert launch angle to radians
     const launchAngleRad = (launchAngle * Math.PI) / 180;
 
     // Initial conditions
-    let position = { x: 0.0, y: 0.0 };
+    let position = { x: 0.0, y: initialElevation };
     let velocity = {
         vx: initialVelocity * Math.cos(launchAngleRad),
         vy: initialVelocity * Math.sin(launchAngleRad)
@@ -53,15 +56,16 @@ function simulateProjectileTrajectory({ initialVelocity, launchAngle, dragCoeffi
 
     let time = 0;
 
-    while (position.y >= 0) {
-        const speed = Math.sqrt(velocity.vx ** 2 + velocity.vy ** 2);
+    while (true) {
+        const relativeVx = velocity.vx - windVx;
+        const speed = Math.sqrt(relativeVx ** 2 + velocity.vy ** 2);
         
         // Correctly calculate drag force based on total speed
         const dragForce = 0.5 * dragCoefficient * airDensity * referenceArea * speed ** 2;
         
         // Drag acceleration opposes the velocity vector
         const dragAccel = dragForce / mass;
-        const ax = speed > 1e-6 ? -dragAccel * (velocity.vx / speed) : 0;
+        const ax = speed > 1e-6 ? -dragAccel * (relativeVx / speed) : 0;
         const ay = speed > 1e-6 ? -g - (dragAccel * (velocity.vy / speed)) : -g;
 
         // Update velocities using Euler integration
@@ -82,6 +86,10 @@ function simulateProjectileTrajectory({ initialVelocity, launchAngle, dragCoeffi
             ...velocity,
             speed: Math.sqrt(velocity.vx ** 2 + velocity.vy ** 2)
         });
+
+        if (time > timeStep && velocity.vy <= 0 && position.y < groundHeightAtX(position.x)) {
+            break;
+        }
     }
 
     return { data };
@@ -233,14 +241,15 @@ function getPitchAngle(time, pitchStart, pitchEnd, startAngle, endAngle) {
  * @param {number} params.burnTime - Duration of engine burn (s).
  * @param {number} params.frontalArea - Rocket's frontal area (m^2).
  * @param {number} params.thrust - Engine thrust in Newtons (N).
+ * @param {number} params.initialElevation - Starting elevation above ground (m).
  * @param {number} [dt=0.1] - The time step for the simulation (s).
  * @param {function} [onProgress] - Optional callback for progress updates.
  * @returns {object} An object containing arrays for times, positions, velocities, and masses.
  */ 
-function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thrust, startAngle, endAngle, pitchStart, pitchEnd, timeStep, maxTime }) {
+function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thrust, startAngle, endAngle, pitchStart, pitchEnd, timeStep, maxTime, initialElevation, groundHeightAtX = () => 0, stopAtGround = true, windVx = 0 }) {
     const dt = timeStep;
     // Initial Conditions
-    let position = { x: 0.0, y: 0.0 };
+    let position = { x: 0.0, y: initialElevation };
     let velocity = { vx: 0.0, vy: 0.0 };
     let mass = initialMass;
     const massFlowRate = (initialMass - endMass) / burnTime;
@@ -254,7 +263,7 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
     let burnoutAltitude = -1;
 
     // Main simulation loop
-    while (position.y >= 0) {
+    while (true) {
         // Determine current state
         const inBurnPhase = time < burnTime;
         const currentThrust = inBurnPhase ? thrust : 0.0;
@@ -275,13 +284,14 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
         };
 
         // Drag Vector
-        const speed = Math.sqrt(velocity.vx ** 2 + velocity.vy ** 2);
+        const relativeVx = velocity.vx - windVx;
+        const speed = Math.sqrt(relativeVx ** 2 + velocity.vy ** 2);
         let dragVector = { x: 0, y: 0 };
         let dragForce = 0;
         if (speed > 1e-6) {
             dragForce = calculateDragForce(speed, position.y, frontalArea);
             dragVector = {
-                x: -dragForce * (velocity.vx / speed),
+                x: -dragForce * (relativeVx / speed),
                 y: -dragForce * (velocity.vy / speed)
             };
         }
@@ -322,6 +332,10 @@ function simulateV2Trajectory({ initialMass, endMass, burnTime, frontalArea, thr
             mach,
             cd
         });
+
+        if (stopAtGround && time > dt && velocity.vy <= 0 && position.y < groundHeightAtX(position.x)) {
+            break;
+        }
         
         // Safety break for very long or failed simulations
         if (time > maxTime) { 
@@ -345,13 +359,21 @@ document.addEventListener('DOMContentLoaded', () => {
         simulationData: null,
         target: null, // {x, y} for the game target
         animationFrameId: null,
+        previewFrameId: null,
+        pendingSimulationParams: null,
         activeExplosions: [], // Holds our particle systems once spawned
         charts: {},
         isDarkMode: window.matchMedia('(prefers-color-scheme: dark)').matches
     };
 
     // --- DOM & 3D ELEMENTS ---
-    let three = { scene: null, camera: null, renderer: null, controls: null, projectile: null, ground: null, line: null, scenery: null };
+    let three = { scene: null, camera: null, renderer: null, controls: null, projectile: null, ground: null, line: null, scenery: null, launchElevation: 0, launchOriginX: 0, worldScale: 1 };
+    const impactSound = new Audio('./sound_effect/mixkit-war-explosions-2773.wav');
+
+    function playImpactSound() {
+        impactSound.currentTime = 0;
+        impactSound.play().catch(() => {});
+    }
 
     const DOMElements = {
         themeToggle: document.getElementById('theme-toggle'),
@@ -456,11 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function create3DViewToggle() {
         const container = document.createElement('div');
-        container.className = 'input-group full-width';
-        container.style.flexDirection = 'row';
-        container.style.alignItems = 'center';
-        container.style.gap = '10px';
-        container.style.marginTop = '0.5rem';
+        container.className = 'view-toggle';
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -473,7 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
         label.style.fontWeight = 'bold';
 
         container.append(checkbox, label);
-        DOMElements.projectileForm.querySelector('.input-grid').prepend(container);
+        DOMElements.projectilePanel.parentElement.insertBefore(container, DOMElements.projectilePanel);
     }
     // --- EVENT LISTENERS ---
     function setupEventListeners() {
@@ -608,13 +626,56 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const form = state.simulationType === 'projectile' ? DOMElements.projectileForm : DOMElements.rocketForm;
-        const params = getAndValidateFormParams(form);
+        const is3D = DOMElements.view3DToggle.checked;
+        const isPrepared3D = is3D && state.pendingSimulationParams;
+        let params = state.pendingSimulationParams;
 
-        if (!params) return;
+        if (!params) {
+            const form = state.simulationType === 'projectile' ? DOMElements.projectileForm : DOMElements.rocketForm;
+            params = getAndValidateFormParams(form);
+
+            if (!params) return;
+
+            // Keep the physics origin at ground level. 3D applies the map elevation visually.
+            params.initialElevation = 0;
+            params.worldLaunchElevation = 0;
+            params.worldOriginX = state.simulationType === 'rocket' ? -26000 : 0;
+        }
+
+        if (is3D && !isPrepared3D) {
+            resetUI(false);
+            state.pendingSimulationParams = params;
+            DOMElements.trajectoryChartCanvas.style.display = 'none';
+            DOMElements.threeCanvas.style.display = 'block';
+            params.windSpeed = Math.random() * 30;
+            params.windDirection = Math.random() * 360;
+            const windDirectionRad = params.windDirection * Math.PI / 180;
+            params.windVx = params.windSpeed * Math.cos(windDirectionRad);
+            params.windVz = params.windSpeed * Math.sin(windDirectionRad);
+            params.worldScale = state.simulationType === 'rocket' ? ROCKET_DISPLAY_SCALE : 1;
+            three.worldScale = params.worldScale;
+            three.launchOriginX = params.worldOriginX;
+            init3DScene();
+            params.worldLaunchElevation = three.launchElevation;
+            three.projectile.position.set(three.launchOriginX, params.worldLaunchElevation, 0);
+            start3DPreview();
+            setUIState('armed');
+            return;
+        }
+
+        state.pendingSimulationParams = null;
+        if (state.previewFrameId) {
+            cancelAnimationFrame(state.previewFrameId);
+            state.previewFrameId = null;
+        }
 
         setUIState('running');
-        resetUI(false); // Soft reset to clear previous run visuals
+        if (!isPrepared3D) {
+            resetUI(false);
+        } else {
+            state.simulationData = null;
+            state.activeExplosions = [];
+        }
 
         // Initialize charts before starting the animation
         updateCharts([]);
@@ -622,14 +683,23 @@ document.addEventListener('DOMContentLoaded', () => {
         // Use setTimeout to allow the UI to update before the heavy computation
         setTimeout(() => {
             try {
-                const is3D = state.simulationType === 'projectile' && DOMElements.view3DToggle.checked;
                 if (is3D) {
                     DOMElements.trajectoryChartCanvas.style.display = 'none';
                     DOMElements.threeCanvas.style.display = 'block';
-                    init3DScene();
+                    if (!three.renderer) init3DScene();
+                    three.renderer.render(three.scene, three.camera);
                 } else {
                     DOMElements.trajectoryChartCanvas.style.display = 'block';
                     DOMElements.threeCanvas.style.display = 'none';
+                }
+
+                params.groundHeightAtX = is3D
+                    ? (x) => getTerrainHeight(three.launchOriginX + x * three.worldScale, 0) - params.worldLaunchElevation
+                    : () => 0;
+                params.stopAtGround = !(is3D && state.simulationType === 'rocket');
+
+                if (is3D) {
+                    three.projectile.position.set(three.launchOriginX, params.worldLaunchElevation, 0);
                 }
 
                 // Run the appropriate simulation to get the static data array first.
@@ -638,7 +708,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     : simulateV2Trajectory(params);
 
                 // Start the frame-by-frame playback animation.
-                playbackAnimation(simulationResult);
+                playbackAnimation(simulationResult, params.worldLaunchElevation);
 
             } catch (error) {
                 console.error("Simulation failed:", error);
@@ -652,14 +722,14 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {object} simulation - The result object from a simulation function.
      * @param {Array<object>} simulation.data - The array of trajectory data points.
      */
-    function playbackAnimation(simulation) {
+    function playbackAnimation(simulation, worldLaunchElevation = 0) {
         const trajectoryData = simulation.data;
         if (!trajectoryData || trajectoryData.length === 0) {
             setUIState('error', 'Simulation produced no data.');
             return;
         }
 
-        const is3D = state.simulationType === 'projectile' && DOMElements.view3DToggle.checked;
+        const is3D = DOMElements.view3DToggle.checked;
         const isProjectile = state.simulationType === 'projectile';
         state.simulationData = trajectoryData; // Store full data for other UI components
 
@@ -667,6 +737,11 @@ document.addEventListener('DOMContentLoaded', () => {
         let currentFrameIndex = 0;
 
         const trajectoryPoints = [];
+        let terrainImpactPoint = null;
+        const terrainCollisionSafeTime = 0.15;
+        const trajectoryPointStride = is3D
+            ? Math.max(1, Math.ceil(trajectoryData.length / 4000))
+            : 1;
 
         // --- Chart references ---
         const trajectoryChart = state.charts.trajectory;
@@ -695,6 +770,32 @@ document.addEventListener('DOMContentLoaded', () => {
             maxMach: isProjectile ? 0 : Math.max(...trajectoryData.map(p => p.mach || 0)),
         };
 
+        function updateAnimatedLineCharts(frameCount) {
+            const visibleData = trajectoryData.slice(0, frameCount);
+            const labels = visibleData.map(point => point.time.toFixed(1));
+
+            velocityChart.data.labels = labels;
+            velocityChart.data.datasets[0].data = visibleData.map(point => point.speed);
+            velocityChart.data.datasets[1].data = visibleData.map(point => point.vx);
+            velocityChart.data.datasets[2].data = visibleData.map(point => point.vy);
+            velocityChart.update('none');
+
+            altitudeChart.data.labels = labels;
+            altitudeChart.data.datasets[0].data = visibleData.map(point => point.y);
+            altitudeChart.update('none');
+
+            if (!isProjectile) {
+                massChart.data.labels = labels;
+                massChart.data.datasets[0].data = visibleData.map(point => point.mass);
+                massChart.update('none');
+
+                machChart.data.labels = labels;
+                machChart.data.datasets[0].data = visibleData.map(point => point.mach);
+                machChart.data.datasets[1].data = visibleData.map(point => point.cd);
+                machChart.update('none');
+            }
+        }
+
         function animationLoop() {
             state.animationFrameId = requestAnimationFrame(animationLoop);
 
@@ -708,16 +809,65 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Update UI and visuals
                 updateLiveUI(frameData, maxValues);
                 if (is3D) {
-                    trajectoryPoints.push(new THREE.Vector3(frameData.x, frameData.y, 0));
-                    update3DScene(frameData, trajectoryPoints);
+                    const isLastFrame = currentFrameIndex === trajectoryData.length - 1;
+                    let visualFrameData = frameData;
+
+                    const nextPosition = new THREE.Vector3(
+                        three.launchOriginX + frameData.x * three.worldScale,
+                        frameData.y * three.worldScale + worldLaunchElevation,
+                        0
+                    );
+                    const previousFrameData = trajectoryData[Math.max(0, currentFrameIndex - 1)];
+                    const previousWorldX = three.launchOriginX + previousFrameData.x * three.worldScale;
+                    const previousWorldY = previousFrameData.y * three.worldScale + worldLaunchElevation;
+                    const previousGroundHeight = getTerrainHeight(previousWorldX, 0);
+                    const nextGroundHeight = getTerrainHeight(nextPosition.x, 0);
+                    const previousClearance = previousWorldY - previousGroundHeight;
+                    const nextClearance = nextPosition.y - nextGroundHeight;
+                    const crossesTerrain = currentFrameIndex > 0
+                        && previousClearance > 0
+                        && nextClearance <= 0
+                        && frameData.vy <= 0;
+                    const collisionPoint = frameData.time > terrainCollisionSafeTime && crossesTerrain
+                        ? findTerrainCollision(
+                            new THREE.Vector3(previousWorldX, previousWorldY, 0),
+                            nextPosition
+                        ) || new THREE.Vector3(nextPosition.x, nextGroundHeight, 0)
+                        : null;
+                    if (collisionPoint) {
+                        terrainImpactPoint = collisionPoint;
+                        visualFrameData = {
+                            ...frameData,
+                            x: (collisionPoint.x - three.launchOriginX) / three.worldScale,
+                            y: (collisionPoint.y - worldLaunchElevation) / three.worldScale
+                        };
+                    }
+                    if (currentFrameIndex % trajectoryPointStride === 0 || isLastFrame || collisionPoint) {
+                        trajectoryPoints.push(new THREE.Vector3(
+                            three.launchOriginX + visualFrameData.x * three.worldScale,
+                            visualFrameData.y * three.worldScale + worldLaunchElevation,
+                            0
+                        ));
+                    }
+                    update3DScene(visualFrameData, trajectoryPoints, worldLaunchElevation, three.worldScale, three.launchOriginX);
                 } else {
                     drawAnimatedProjectile(frameData, trajectoryChart);
+                    trajectoryChart.data.datasets[0].data = trajectoryData
+                        .slice(0, currentFrameIndex + 1)
+                        .map(point => ({ x: point.x, y: point.y }));
+                    trajectoryChart.update('none');
                 }
+                updateAnimatedLineCharts(currentFrameIndex + 1);
 
                 currentFrameIndex++;
 
+                if (terrainImpactPoint && is3D) {
+                    currentFrameIndex = trajectoryData.length;
+                }
+
                 // IMPACT CHECK: Trigger on the exact frame the loop hits the final index
                 if (currentFrameIndex === trajectoryData.length) {
+                    if (is3D) playImpactSound();
                     setUIState('complete');
                     updateSummary(simulation);
                     updateTable(trajectoryData);
@@ -726,9 +876,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         // Hide the shell mesh
                         three.projectile.visible = false;
                         // Spawn a final blast at the impact point
-                        const finalPos = trajectoryData[trajectoryData.length - 1];
-                        const terrainHeight = getTerrainHeight(finalPos.x, 0);
-                        state.activeExplosions.push(createBlast(finalPos.x, terrainHeight, 0));
+                        const finalPos = terrainImpactPoint || new THREE.Vector3(
+                            three.launchOriginX + trajectoryData[trajectoryData.length - 1].x * three.worldScale,
+                            getTerrainHeight(three.launchOriginX + trajectoryData[trajectoryData.length - 1].x * three.worldScale, 0),
+                            0
+                        );
+                        state.activeExplosions.push(createBlast(finalPos.x, finalPos.y, finalPos.z));
                     }
                 }
             }
@@ -768,6 +921,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.animationFrameId = null;
                 
                 // Final UI updates for 2D mode
+                updateCharts(trajectoryData, true);
                 setUIState('complete');
                 updateSummary(simulation);
                 updateTable(trajectoryData);
@@ -783,8 +937,34 @@ document.addEventListener('DOMContentLoaded', () => {
             state.charts.trajectory.data.datasets[0].data = [];
             state.charts.trajectory.update('none');
         }
+        state.charts.velocity.data.labels = [];
+        state.charts.velocity.data.datasets.forEach(dataset => dataset.data = []);
+        state.charts.velocity.update('none');
+        state.charts.altitude.data.labels = [];
+        state.charts.altitude.data.datasets[0].data = [];
+        state.charts.altitude.update('none');
+        if (!isProjectile) {
+            state.charts.mass.data.labels = [];
+            state.charts.mass.data.datasets[0].data = [];
+            state.charts.mass.update('none');
+            state.charts.mach.data.labels = [];
+            state.charts.mach.data.datasets.forEach(dataset => dataset.data = []);
+            state.charts.mach.update('none');
+        }
 
         animationLoop();
+    }
+
+    function start3DPreview() {
+        const renderPreview = () => {
+            if (!three.renderer || !three.controls) return;
+
+            three.controls.update();
+            three.renderer.render(three.scene, three.camera);
+            state.previewFrameId = requestAnimationFrame(renderPreview);
+        };
+
+        renderPreview();
     }
 
     /**
@@ -882,6 +1062,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 DOMElements.runButton.textContent = 'Stop Simulation';
                 DOMElements.runButton.classList.add('stop-button');
                 break;
+            case 'armed':
+                DOMElements.statusBadge.textContent = 'Map Ready';
+                DOMElements.runButton.textContent = 'Shoot!';
+                DOMElements.runButton.classList.remove('stop-button');
+                break;
             case 'complete':
                 DOMElements.statusBadge.textContent = 'Complete';
                 DOMElements.statusBadge.classList.add('success');
@@ -919,8 +1104,13 @@ document.addEventListener('DOMContentLoaded', () => {
             cancelAnimationFrame(state.animationFrameId);
             state.animationFrameId = null;
         }
+        if (state.previewFrameId) {
+            cancelAnimationFrame(state.previewFrameId);
+            state.previewFrameId = null;
+        }
         state.activeExplosions = [];
         state.simulationData = null;
+        state.pendingSimulationParams = null;
         if (hardReset) state.target = null;
 
         // Reset canvases
@@ -1204,12 +1394,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Camera
         three.camera = new THREE.PerspectiveCamera(60, width / height, 1, 1000000);
-        three.camera.position.set(-2000, 2000, 5000); // Start behind and above the origin
-        three.camera.lookAt(0, 0, 0); // Look at the artillery station
+        three.camera.position.set(three.launchOriginX - 2000, 2000, 5000);
+        three.camera.lookAt(three.launchOriginX, 0, 0);
 
         // Controls
         three.controls = new OrbitControls(three.camera, canvas);
-        three.controls.target.set(0, 0, 0); // Set initial target to the origin
+        three.controls.target.set(three.launchOriginX, 0, 0);
+        three.controls.enabled = true;
+        three.controls.enablePan = true;
+        three.controls.enableZoom = true;
         three.controls.enableDamping = true; // for smooth camera motion
         three.controls.dampingFactor = 0.05;
 
@@ -1246,10 +1439,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // We shift the ground down slightly so the projectile starts just above the average ground level
         three.ground.position.y = -500;
         three.scene.add(three.ground);
+        three.ground.updateMatrixWorld(true);
 
         // Add simple landmarks to make the terrain easier to read at a glance.
         three.scenery = new THREE.Group();
         three.scene.add(three.scenery);
+        const isRocket = state.simulationType === 'rocket';
+        const landmarkScale = isRocket ? ROCKET_DISPLAY_SCALE : 1;
 
         const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x2f7d4a, roughness: 0.9 });
         const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x765033, roughness: 1 });
@@ -1258,7 +1454,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetMaterial = new THREE.MeshStandardMaterial({ color: 0xf2d14b, roughness: 0.7 });
         const targetRingMaterial = new THREE.MeshStandardMaterial({ color: 0xc83e3e, roughness: 0.7 });
 
-        const addForest = (candidateCount = 1800) => {
+        const addForest = (candidateCount = isRocket ? 60000 : 3600) => {
             const placements = [];
             let seed = 42817;
             const random = () => {
@@ -1267,10 +1463,10 @@ document.addEventListener('DOMContentLoaded', () => {
             };
 
             for (let i = 0; i < candidateCount; i++) {
-                const x = THREE.MathUtils.randFloat(-24000, 24000);
-                const z = THREE.MathUtils.randFloat(-7000, 7000);
+                const x = THREE.MathUtils.randFloat(isRocket ? -30000 : -24000, isRocket ? 30000 : 24000);
+                const z = THREE.MathUtils.randFloat(isRocket ? -9000 : -7000, isRocket ? 9000 : 7000);
                 const clusterShape = 0.5 + 0.5 * Math.sin(x / 3600 + Math.sin(z / 2800)) * Math.cos(z / 3000);
-                const density = 0.08 + clusterShape * 0.78;
+                const density = isRocket ? 0.45 + clusterShape * 0.55 : 0.18 + clusterShape * 0.82;
 
                 if (random() > density) continue;
 
@@ -1282,8 +1478,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
 
-            const trunkGeometry = new THREE.CylinderGeometry(24, 32, 180, 8);
-            const crownGeometry = new THREE.ConeGeometry(125, 300, 8);
+            const trunkGeometry = new THREE.CylinderGeometry(24 * landmarkScale, 32 * landmarkScale, 180 * landmarkScale, 8);
+            const crownGeometry = new THREE.ConeGeometry(125 * landmarkScale, 300 * landmarkScale, 8);
             const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, placements.length);
             const crowns = new THREE.InstancedMesh(crownGeometry, foliageMaterial, placements.length);
             const dummy = new THREE.Object3D();
@@ -1293,11 +1489,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 dummy.scale.setScalar(scale);
                 dummy.rotation.set(0, rotation, 0);
 
-                dummy.position.set(x, terrainY + 90 * scale, z);
+                dummy.position.set(x, terrainY + 90 * scale * landmarkScale, z);
                 dummy.updateMatrix();
                 trunks.setMatrixAt(index, dummy.matrix);
 
-                dummy.position.set(x, terrainY + 290 * scale, z);
+                dummy.position.set(x, terrainY + 290 * scale * landmarkScale, z);
                 dummy.updateMatrix();
                 crowns.setMatrixAt(index, dummy.matrix);
             });
@@ -1309,20 +1505,78 @@ document.addEventListener('DOMContentLoaded', () => {
             three.scenery.add(trunks, crowns);
         };
 
-        const addHouse = (x, z, scale = 1) => {
-            const house = new THREE.Group();
-            const walls = new THREE.Mesh(new THREE.BoxGeometry(420, 260, 360), wallMaterial);
-            walls.position.y = 130;
-            house.add(walls);
+        const addHouses = () => {
+            const placements = [];
+            let seed = 17291;
+            const random = () => {
+                seed = (seed * 1664525 + 1013904223) >>> 0;
+                return seed / 4294967296;
+            };
 
-            const roof = new THREE.Mesh(new THREE.ConeGeometry(310, 230, 4), roofMaterial);
-            roof.rotation.y = Math.PI / 4;
-            roof.position.y = 375;
-            house.add(roof);
+            const clusterCount = isRocket ? 12 : 3 + Math.floor(random() * 3);
+            const clusterCenters = [];
 
-            house.position.set(x, getTerrainHeight(x, z), z);
-            house.scale.setScalar(scale);
-            three.scenery.add(house);
+            while (clusterCenters.length < clusterCount) {
+                const x = THREE.MathUtils.randFloat(isRocket ? -28000 : -20000, isRocket ? 28000 : 20000);
+                const z = THREE.MathUtils.randFloat(isRocket ? -7500 : -8000, isRocket ? 7500 : 8000);
+                const isTooClose = clusterCenters.some((center) => {
+                    const distanceX = center.x - x;
+                    const distanceZ = center.z - z;
+                    return distanceX * distanceX + distanceZ * distanceZ < (isRocket ? 4500 : 7000) ** 2;
+                });
+
+                if (!isTooClose) clusterCenters.push({ x, z });
+            }
+
+            clusterCenters.forEach(({ x: centerX, z: centerZ }) => {
+                const houseCount = isRocket ? 8 + Math.floor(random() * 10) : 5 + Math.floor(random() * 6);
+                for (let i = 0; i < houseCount; i++) {
+                    const angle = random() * Math.PI * 2;
+                    const distance = THREE.MathUtils.randFloat(450, 1800);
+                    const x = centerX + Math.cos(angle) * distance;
+                    const z = centerZ + Math.sin(angle) * distance;
+
+                    placements.push({
+                        x,
+                        z,
+                        scale: THREE.MathUtils.randFloat(0.8, 1.15),
+                        rotation: random() * Math.PI * 2,
+                    });
+                }
+            });
+
+            const walls = new THREE.InstancedMesh(
+                new THREE.BoxGeometry(420 * landmarkScale, 260 * landmarkScale, 360 * landmarkScale),
+                wallMaterial,
+                placements.length
+            );
+            const roofs = new THREE.InstancedMesh(
+                new THREE.ConeGeometry(310 * landmarkScale, 230 * landmarkScale, 4),
+                roofMaterial,
+                placements.length
+            );
+            const dummy = new THREE.Object3D();
+
+            placements.forEach(({ x, z, scale, rotation }, index) => {
+                const terrainY = getTerrainHeight(x, z);
+                dummy.scale.setScalar(scale);
+                dummy.rotation.set(0, rotation, 0);
+
+                dummy.position.set(x, terrainY + 130 * scale * landmarkScale, z);
+                dummy.updateMatrix();
+                walls.setMatrixAt(index, dummy.matrix);
+
+                dummy.rotation.y = rotation + Math.PI / 4;
+                dummy.position.set(x, terrainY + 375 * scale * landmarkScale, z);
+                dummy.updateMatrix();
+                roofs.setMatrixAt(index, dummy.matrix);
+            });
+
+            walls.instanceMatrix.needsUpdate = true;
+            roofs.instanceMatrix.needsUpdate = true;
+            walls.computeBoundingSphere();
+            roofs.computeBoundingSphere();
+            three.scenery.add(walls, roofs);
         };
 
         const addTarget = (x, z) => {
@@ -1344,28 +1598,35 @@ document.addEventListener('DOMContentLoaded', () => {
             three.scenery.add(target);
         };
 
-        addForest(1800);
+        addForest();
 
-        // Small settlements sit off the main flight corridor.
-        [
-            [6200, 1500, 1], [6750, 1650, 0.85], [6900, 1050, 0.75],
-            [7500, 1350, 0.9], [7200, 2050, 0.72],
-            [15400, -1200, 0.85], [15900, -1000, 0.72], [16100, -1550, 0.8],
-            [16600, -1250, 0.68], [-10800, -1700, 0.9], [-10200, -1450, 0.72],
-            [-9800, -1950, 0.78]
-        ].forEach(([x, z, scale]) => addHouse(x, z, scale));
+        addHouses();
 
         addTarget(12000, 0);
         addTarget(24500, 1800);
         addTarget(-16500, -1200);
 
-        // Projectile
-        const projectileGeometry = new THREE.SphereGeometry(150, 16, 16);
-        const projectileMaterial = new THREE.MeshStandardMaterial({ color: 0xff6347 });
+        // Projectile or rocket marker
+        const projectileGeometry = isRocket
+            ? new THREE.ConeGeometry(120 * ROCKET_DISPLAY_SCALE, 420 * ROCKET_DISPLAY_SCALE, 12)
+            : new THREE.SphereGeometry(150, 16, 16);
+        const projectileMaterial = new THREE.MeshStandardMaterial({ color: isRocket ? 0xd6d9df : 0xff6347 });
         three.projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+        if (isRocket) three.projectile.rotation.z = -Math.PI / 2;
         three.projectile.visible = true; // Ensure it's visible on new runs
         three.scene.add(three.projectile);
         
+        if (isRocket) {
+            const launchPadMaterial = new THREE.MeshStandardMaterial({ color: 0x4a5568, roughness: 0.8 });
+            const launchPad = new THREE.Mesh(new THREE.BoxGeometry(
+                1800 * ROCKET_DISPLAY_SCALE,
+                180 * ROCKET_DISPLAY_SCALE,
+                1800 * ROCKET_DISPLAY_SCALE
+            ), launchPadMaterial);
+            launchPad.position.set(three.launchOriginX, 0, 0);
+            three.scene.add(launchPad);
+            snapToTerrain(launchPad, three.ground);
+        } else {
         // Artillery Model (Field Gun Style)
         const artillery = new THREE.Group();
 
@@ -1419,8 +1680,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Scale and position the entire model
         artillery.scale.set(250, 250, 250);
-        artillery.position.set(0, -250, 0); 
+        artillery.position.set(0, 0, 0);
         three.scene.add(artillery);
+        snapToTerrain(artillery, three.ground);
+        }
 
         // Trajectory Line
         const lineMaterial = new THREE.LineBasicMaterial({ color: 0x2155cd });
@@ -1429,14 +1692,49 @@ document.addEventListener('DOMContentLoaded', () => {
         three.scene.add(three.line);
     }
 
-    function update3DScene(frameData, points) {
+    function snapToTerrain(object, terrain) {
+        const raycaster = new THREE.Raycaster();
+        const rayOrigin = new THREE.Vector3(object.position.x, 10000, object.position.z);
+        const downDirection = new THREE.Vector3(0, -1, 0);
+
+        raycaster.set(rayOrigin, downDirection);
+        const intersections = raycaster.intersectObject(terrain, false);
+        if (intersections.length === 0) return;
+
+        const hit = intersections[0];
+        const surfaceNormal = hit.face.normal.clone().transformDirection(terrain.matrixWorld);
+        const upVector = new THREE.Vector3(0, 1, 0);
+
+        object.position.copy(hit.point);
+        object.quaternion.setFromUnitVectors(upVector, surfaceNormal);
+        three.launchElevation = hit.point.y;
+    }
+
+    function findTerrainCollision(previousPosition, currentPosition) {
+        const travel = new THREE.Vector3().subVectors(currentPosition, previousPosition);
+        const travelDistance = travel.length();
+        if (travelDistance <= 1e-6) return null;
+
+        const raycaster = new THREE.Raycaster(
+            previousPosition,
+            travel.normalize(),
+            0,
+            travelDistance
+        );
+        const intersections = raycaster.intersectObject(three.ground, true);
+        return intersections.length > 0 ? intersections[0].point : null;
+    }
+
+    function update3DScene(frameData, points, worldLaunchElevation = 0, worldScale = 1, launchOriginX = 0) {
         if (!three.renderer) return;
 
         // Update projectile position
-        three.projectile.position.set(frameData.x, frameData.y, 0);
+        const worldX = launchOriginX + frameData.x * worldScale;
+        const worldY = frameData.y * worldScale + worldLaunchElevation;
+        three.projectile.position.set(worldX, worldY, 0);
 
         // Smoothly move the camera's target to follow the projectile
-        const targetPosition = new THREE.Vector3(frameData.x, frameData.y, 0);
+        const targetPosition = new THREE.Vector3(worldX, worldY, 0);
         three.controls.target.lerp(targetPosition, 0.1);
         three.controls.update();
 

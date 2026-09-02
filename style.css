@@ -215,7 +215,7 @@ h3 {
   position: sticky;
   top: 1rem;
   max-height: calc(100vh - 2rem);
-  padding: 1.25rem;
+  padding: 1rem;
   overflow-y: auto;
 }
 
@@ -226,7 +226,7 @@ h3 {
 .input-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 /* Container */
@@ -239,9 +239,9 @@ h3 {
 /* Actual select */
 .select-wrapper select {
   width: 100%;
-  height: 48px;
+  height: 42px;
 
-  padding: 0 45px 0 16px;
+  padding: 0 38px 0 12px;
 
   background: #182235;
   color: #ffffff;
@@ -249,7 +249,7 @@ h3 {
   border: 1px solid #33435e;
   border-radius: 10px;
 
-  font-size: 16px;
+  font-size: 0.92rem;
   font-family: inherit;
   font-weight: 500;
 
@@ -326,7 +326,7 @@ h3 {
 }
 
 .panel-heading {
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .results-header {
@@ -338,16 +338,16 @@ h3 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.4rem;
-  margin-bottom: 1.1rem;
-  padding: 0.35rem;
+  margin-bottom: 0.8rem;
+  padding: 0.25rem;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-soft);
 }
 
 .tab-button {
-  min-height: 42px;
-  padding: 0.7rem 0.8rem;
+  min-height: 36px;
+  padding: 0.5rem 0.65rem;
   border-radius: 9px;
   background: transparent;
   color: var(--text-soft);
@@ -390,7 +390,7 @@ legend {
 .input-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0.9rem;
+  gap: 0.65rem;
 }
 
 .input-group {
@@ -398,10 +398,57 @@ legend {
   gap: 0.42rem;
 }
 
+.view-toggle {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+}
+
+.view-toggle input {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
+.view-toggle label {
+  margin: 0;
+}
+
 .input-group label {
   font-size: 0.88rem;
   font-weight: 700;
   color: var(--text);
+}
+
+#rocket-panel .input-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#rocket-panel .flight-phase-panel {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.7rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+#rocket-panel .flight-phase-label {
+  color: var(--text-soft);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+#rocket-panel #rocket-live-readout {
+  color: var(--text-soft);
+  font-size: 0.78rem;
 }
 
 .input-with-unit {
@@ -424,15 +471,15 @@ legend {
 .input-with-unit input {
   width: 100%;
   min-width: 0;
-  padding: 0.72rem 0.8rem;
+  padding: 0.58rem 0.7rem;
   border: 0;
   background: transparent;
   outline: none;
 }
 
 .input-with-unit span {
-  min-width: 58px;
-  padding: 0.72rem 0.75rem;
+  min-width: 50px;
+  padding: 0.58rem 0.55rem;
   border-left: 1px solid var(--border);
   color: var(--text-soft);
   font-size: 0.8rem;
@@ -486,10 +533,15 @@ button:disabled {
 }
 
 .control-actions {
+  position: sticky;
+  bottom: -1rem;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.7rem;
-  margin-top: 1.2rem;
+  gap: 0.55rem;
+  margin: 0.85rem -1rem -1rem;
+  padding: 0.7rem 1rem 1rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .control-actions .primary-button {
@@ -789,12 +841,22 @@ tbody tr:hover {
   .header-content,
   .page-layout,
   .site-footer p {
-    width: min(100% - 1rem, var(--content-width));
+    width: min(100% - 1.5rem, var(--content-width));
   }
 
   .header-content {
     flex-direction: column;
-    padding: 1.5rem 0;
+    gap: 1rem;
+    padding: 1.25rem 0;
+  }
+
+  h1 {
+    margin-bottom: 0.55rem;
+    font-size: 2rem;
+  }
+
+  .header-description {
+    font-size: 0.95rem;
   }
 
   .header-content > .secondary-button {
@@ -812,8 +874,24 @@ tbody tr:hover {
     border-radius: var(--radius-md);
   }
 
+  .control-panel {
+    padding: 0.8rem;
+    overflow: visible;
+  }
+
+  .control-actions {
+    margin-right: -0.8rem;
+    margin-left: -0.8rem;
+    padding-right: 0.8rem;
+    padding-left: 0.8rem;
+  }
+
   .input-grid,
   .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #rocket-panel .input-grid {
     grid-template-columns: 1fr;
   }
 
@@ -830,15 +908,38 @@ tbody tr:hover {
 
   .chart-reset-button,
   .table-limit-control {
-    align-self: flex-start;
+    align-self: stretch;
+  }
+
+  .chart-reset-button {
+    min-height: 42px;
+  }
+
+  .table-limit-control {
+    justify-content: space-between;
+  }
+
+  .table-limit-control select {
+    min-width: 5rem;
+    min-height: 42px;
   }
 
   .chart-container {
-    min-height: 280px;
+    min-height: 260px;
   }
 
   .chart-container-large {
-    min-height: 340px;
+    min-height: 320px;
+  }
+
+  .data-card,
+  .chart-card {
+    padding: 0.8rem;
+  }
+
+  .information-content {
+    padding-right: 0.9rem;
+    padding-left: 0.9rem;
   }
 }
 
@@ -964,7 +1065,7 @@ tbody tr:hover {
 }
 
 .advanced-settings {
-  margin-top: 1rem;
+  margin-top: 0.75rem;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -972,7 +1073,7 @@ tbody tr:hover {
 }
 
 .advanced-settings summary {
-  padding: 0.85rem 0.95rem;
+  padding: 0.65rem 0.75rem;
   color: var(--text);
   font-size: 0.86rem;
   font-weight: 800;
@@ -989,7 +1090,7 @@ tbody tr:hover {
 }
 
 .advanced-settings fieldset {
-  padding: 0.9rem;
+  padding: 0.7rem;
 }
 
 .advanced-help {
