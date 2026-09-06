@@ -1,6 +1,6 @@
 /* =========================================================
    FLIGHT TRAJECTORY SIMULATOR
-   Application and Simulation Logic flow
+   Application and Simulation Logic
    ========================================================= */
 
 import * as THREE from 'three';
@@ -396,7 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- DOM & 3D ELEMENTS ---
-    let three = { scene: null, camera: null, renderer: null, controls: null, projectile: null, ground: null, line: null, scenery: null, windIndicator: null, launchElevation: 0, launchOriginX: 0, worldScale: 1 };
+    let three = { scene: null, camera: null, renderer: null, controls: null, projectile: null, ground: null, line: null, scenery: null, windIndicator: null, targetMarker: null, mapPointerDown: null, mapPointerMoved: false, launchElevation: 0, launchOriginX: 0, worldScale: 1 };
     const impactSound = new Audio('./sound_effect/mixkit-war-explosions-2773.wav');
 
     function playImpactSound() {
@@ -530,6 +530,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- EVENT LISTENERS ---
     function setupEventListeners() {
         DOMElements.trajectoryChartCanvas.addEventListener('click', onChartClick);
+        DOMElements.threeCanvas.addEventListener('pointerdown', on3DMapPointerDown);
+        DOMElements.threeCanvas.addEventListener('pointermove', on3DMapPointerMove);
+        DOMElements.threeCanvas.addEventListener('pointerup', on3DMapPointerUp);
+        DOMElements.threeCanvas.addEventListener('pointercancel', on3DMapPointerCancel);
+        DOMElements.threeCanvas.addEventListener('click', on3DMapClick);
         DOMElements.themeToggle.addEventListener('click', toggleTheme);
         DOMElements.projectileTab.addEventListener('click', () => switchSimulationType('projectile'));
         DOMElements.rocketTab.addEventListener('click', () => switchSimulationType('rocket'));
@@ -586,6 +591,59 @@ document.addEventListener('DOMContentLoaded', () => {
     
         state.target = { x: dataX, y: dataY };
         drawTarget(); // Draw the new target immediately
+        if (state.simulationType === 'projectile') {
+            setUIState('target-selected');
+        }
+    }
+
+    function on3DMapClick(event) {
+        if (!three.renderer || !three.camera || !three.ground || state.animationFrameId || three.mapPointerMoved) return;
+
+        const rect = DOMElements.threeCanvas.getBoundingClientRect();
+        const pointer = new THREE.Vector2(
+            ((event.clientX - rect.left) / rect.width) * 2 - 1,
+            -((event.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(pointer, three.camera);
+
+        const intersections = raycaster.intersectObject(three.ground, false);
+        if (intersections.length === 0) return;
+
+        const hit = intersections[0].point;
+        state.target = {
+            x: (hit.x - three.launchOriginX) / three.worldScale,
+            y: (hit.y - three.launchElevation) / three.worldScale,
+            worldX: hit.x,
+            worldY: hit.y,
+            worldZ: hit.z
+        };
+        show3DTargetMarker(hit);
+        setUIState('target-selected');
+    }
+
+    function on3DMapPointerDown(event) {
+        three.mapPointerDown = { x: event.clientX, y: event.clientY };
+        three.mapPointerMoved = false;
+    }
+
+    function on3DMapPointerMove(event) {
+        if (!three.mapPointerDown || three.mapPointerMoved) return;
+
+        const distance = Math.hypot(
+            event.clientX - three.mapPointerDown.x,
+            event.clientY - three.mapPointerDown.y
+        );
+        if (distance > 8) three.mapPointerMoved = true;
+    }
+
+    function on3DMapPointerUp() {
+        three.mapPointerDown = null;
+    }
+
+    function on3DMapPointerCancel() {
+        three.mapPointerDown = null;
+        three.mapPointerMoved = true;
     }
 
     function onProfileButtonClick(event) {
@@ -676,14 +734,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const is3D = DOMElements.view3DToggle.checked;
+        if (state.simulationType === 'projectile' && !state.target && !is3D) {
+            setUIState('error', 'Select a target on the trajectory map before shooting.');
+            return;
+        }
+
         const isPrepared3D = is3D && state.pendingSimulationParams;
         let params = state.pendingSimulationParams;
 
-        if (!params) {
+        if (!params || (isPrepared3D && state.simulationType === 'projectile' && state.target)) {
             const form = state.simulationType === 'projectile' ? DOMElements.projectileForm : DOMElements.rocketForm;
-            params = getAndValidateFormParams(form);
+            const formParams = getAndValidateFormParams(form);
 
-            if (!params) return;
+            if (!formParams) return;
+
+            params = isPrepared3D
+                ? {
+                    ...formParams,
+                    initialElevation: 0,
+                    worldLaunchElevation: state.pendingSimulationParams.worldLaunchElevation,
+                    worldOriginX: state.pendingSimulationParams.worldOriginX,
+                    worldScale: state.pendingSimulationParams.worldScale
+                }
+                : formParams;
 
             // Keep the physics origin at ground level. 3D applies the map elevation visually.
             params.initialElevation = 0;
@@ -707,7 +780,7 @@ document.addEventListener('DOMContentLoaded', () => {
             params.worldLaunchElevation = three.launchElevation;
             three.projectile.position.set(three.launchOriginX, params.worldLaunchElevation, 0);
             start3DPreview();
-            setUIState('armed');
+            setUIState('map-ready');
             return;
         }
 
@@ -1119,6 +1192,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 DOMElements.runButton.textContent = 'Shoot!';
                 DOMElements.runButton.classList.remove('stop-button');
                 break;
+            case 'map-ready':
+                DOMElements.statusBadge.textContent = 'Select Target';
+                DOMElements.runButton.textContent = 'Select target on map';
+                DOMElements.runButton.disabled = true;
+                DOMElements.runButton.classList.remove('stop-button');
+                break;
+            case 'target-selected':
+                DOMElements.statusBadge.textContent = 'Target Selected';
+                DOMElements.runButton.textContent = 'Shoot!';
+                DOMElements.runButton.disabled = false;
+                DOMElements.runButton.classList.remove('stop-button');
+                DOMElements.formError.hidden = true;
+                break;
             case 'complete':
                 DOMElements.statusBadge.textContent = 'Complete';
                 DOMElements.statusBadge.classList.add('success');
@@ -1173,6 +1259,7 @@ document.addEventListener('DOMContentLoaded', () => {
             three.renderer = null;
             if (three.controls) three.controls.dispose();
             disposeWindIndicator();
+            dispose3DTargetMarker();
             DOMElements.threeCanvas.innerHTML = '';
         }
 
@@ -1789,6 +1876,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         three.scene?.remove(three.windIndicator);
         three.windIndicator = null;
+    }
+
+    function show3DTargetMarker(position) {
+        dispose3DTargetMarker();
+
+        const marker = new THREE.Group();
+        const markerMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff3b30,
+            emissive: 0x5a0804,
+            emissiveIntensity: 1.5,
+            roughness: 0.35
+        });
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(260, 34, 12, 32), markerMaterial);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = 35;
+        marker.add(ring);
+
+        const beacon = new THREE.Mesh(new THREE.CylinderGeometry(24, 24, 700, 12), markerMaterial);
+        beacon.position.y = 350;
+        marker.add(beacon);
+
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(70, 16, 12), markerMaterial);
+        cap.position.y = 720;
+        marker.add(cap);
+
+        marker.position.copy(position);
+        marker.userData.resources = { markerMaterial };
+        three.scene.add(marker);
+        three.targetMarker = marker;
+        three.renderer.render(three.scene, three.camera);
+    }
+
+    function dispose3DTargetMarker() {
+        if (!three.targetMarker) return;
+
+        const resources = three.targetMarker.userData.resources;
+        if (resources?.markerMaterial) resources.markerMaterial.dispose();
+        three.targetMarker.traverse((object) => {
+            if (object.geometry) object.geometry.dispose();
+        });
+        three.scene?.remove(three.targetMarker);
+        three.targetMarker = null;
     }
 
     function snapToTerrain(object, terrain) {
